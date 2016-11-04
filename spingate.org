@@ -1,0 +1,205 @@
+#+OPTIONS: ':nil *:t -:t ::t <:t H:3 \n:nil ^:nil arch:headline author:t c:nil
+#+OPTIONS: creator:comment d:(not "LOGBOOK") date:t e:t email:nil f:t inline:t
+#+OPTIONS: num:t p:nil pri:nil stat:t tags:t tasks:t tex:t timestamp:t toc:nil
+#+OPTIONS: todo:t |:t
+#+TITLE: spingate
+#+DATE: <2016-10-29 Sat>
+#+AUTHOR: Steve Downey
+#+EMAIL: sdowney@sdowney.org
+#+LANGUAGE: en
+#+SELECT_TAGS: export
+#+EXCLUDE_TAGS: noexport
+#+CREATOR: Emacs 24.5.1 (Org mode 8.3.6)
+#+OPTIONS: html-link-use-abs-url:nil html-postamble:auto html-preamble:t
+#+OPTIONS: html-scripts:t html-style:t html5-fancy:nil tex:t
+#+HTML_DOCTYPE: xhtml-strict
+#+HTML_CONTAINER: div
+#+DESCRIPTION:
+#+KEYWORDS:
+#+HTML_LINK_HOME:
+#+HTML_LINK_UP:
+#+HTML_MATHJAX:
+#+HTML_HEAD: <link href="http://sdowney.org/css/smd-zenburn.css" rel="stylesheet"></link>
+#+HTML_HEAD_EXTRA:
+#+SUBTITLE:
+#+INFOJS_OPT:
+#+LATEX_HEADER:
+#+BABEL: :results output graphics :tangle yes
+
+* Building a simple spin gate in C++
+
+This is a very simplified latch which allows several threads to block and busywait until they are released to begin work in parallel. I'm using this to do some multi-thread stress testing, where I want to maximize the overlapping work in order to check for suprising non-deterministic behavior. There's no count associated with the gate, nor is it reuseable. All we need is the one bit of information, weather the gate is open or closed.
+
+The simplest atomic boolean is the std::atomic_flag. It's guaranteed by standard to be lock free. Unfortunately, to provide that guarantee, it provides no way to do an atomic read or write to the flag, just a clear, and a set and return prior value. This isn't rich enough for multiple threads to wait, although it is enough to implement a spinlock.
+
+std::atomic<bool> isn't guaranteed to be lock free, but in practice, any architecture I'm interested has at least 32bit aligned atomics that are lock free. Older hardware, such as ARMv5, SparcV8, and 80386 are missing cmpxchg, so loads are generally implemented with a lock in order to maintain the guarantees if there were a simultaneous load and exchange. See, for example, [[http://llvm.org/docs/Atomics.html][LLVM Atomic Instructions and Concurrency Guide]]. Modern ARM, x86, Sparc, and Power chips are fine.
+
+When the spin gate is constructed, we'll mark the gate as closed. Threads will then wait on the flag, spinning until the gate is opened. For this we use Release-Acquire ordering between the open and wait. This will ensure any stores done before the gate is opened will be visible to the thread waiting.
+
+
+#+BEGIN_SRC C++
+// spingate.h                                                       -*-C++-*-
+#ifndef INCLUDED_SPINGATE
+#define INCLUDED_SPINGATE
+
+#include <atomic>
+
+class Gate
+{
+    std::atomic_bool flag_;
+
+  public:
+    Gate();
+    void wait();
+    void open();
+};
+
+
+inline
+Gate::Gate(){
+    // Close the gate
+    flag_.store(true, std::memory_order_release);
+}
+
+inline
+void Gate::wait() {
+    while (flag_.load(std::memory_order_acquire))
+        ; // spin
+}
+
+inline
+void Gate::open() {
+    flag_.store(false, std::memory_order_release);
+}
+
+
+#endif
+#+END_SRC
+
+
+Using is is fairly straightfoward. Create an instance of Gate and wait() on it in each of the worker threads. Once all of the threads are created, open the gate to let them run. In this example, I sleep for one second in order to check that none of the worker threads get past the gate before it is opened.
+
+#+BEGIN_SRC C++
+#include "spingate.h"
+
+#include <vector>
+#include <chrono>
+#include <thread>
+#include <iostream>
+
+
+int main()
+{
+    std::vector<std::thread> workers;
+    Gate gate;
+    using time_point = std::chrono::time_point<std::chrono::high_resolution_clock>;
+    time_point t1;
+    auto threadCount = std::thread::hardware_concurrency();
+    std::vector<time_point> times;
+    times.resize(threadCount);
+
+    for (size_t n = 0; n < threadCount; ++n) {
+        workers.emplace_back([&gate, t1, &times, n]{
+                gate.wait();
+                auto t2 = std::chrono::high_resolution_clock::now();
+                times[n] = t2;
+            });
+    }
+
+    std::cout << "Open the gate in 1 second: " << std::endl;
+    using namespace std::chrono_literals;
+    std::this_thread::sleep_for(1s);
+    t1 = std::chrono::high_resolution_clock::now();
+    gate.open();
+
+    for (auto& thr : workers) {
+        thr.join();
+    }
+
+    int threadNum = 0;
+    for (auto& time: times) {
+        auto diff = std::chrono::duration_cast<std::chrono::nanoseconds>(time - t1);
+        std::cout << "Thread " << threadNum++ << " waited " << diff.count() << "ns\n";
+    }
+}
+#+END_SRC
+
+I'd originally had the body of the threads just spitting out that they were running on std::cout, and the lack of execution before the gate  plus the overlapping output, being evidence of the gate working. That looked like:
+
+#+HEADERS: :exports code :eval never
+#+BEGIN_SRC C++
+for (std::size_t n = 0; n < std::thread::hardware_concurrency(); ++n) {
+    workers.emplace_back([&gate, n]{
+            gate.wait();
+            std::cout << "Output from gated thread " << n << std::endl;
+        });
+}
+#+END_SRC
+
+The gate is captured in the thread lambda by reference, the thread number by value, and when run, overlapping gibberish is printed to the console as soon as open() is called.
+
+But then I became curious about how long the spin actually lasted. Particularly since the guarantees for atomics with release-aquire sematics, or really even sequentially consistent, are about once a change is visible, that changes before are also visible. It's really a function of the underlying hardware how fast the change is visible, and what are the costs of making the happened-before writes available. I'd already observed better overlapping execution using the gate, as opposed to just letting the threads run, so for my initial purposes of making contention more likely, I was satisified. Visibiltity, on my lightly loaded system, seems to be in the range of a few hundred to a couple thousand nanoseconds, which is fairly good.
+
+Checking how long it took to start let me do two thing. First, play with the new-ish chrono library. Second,
+* Building and Running
+
+This is a minimal CMake file for building with the system compiler.
+
+#+BEGIN_SRC cmake
+cmake_minimum_required(VERSION 3.5)
+set(CMAKE_LEGACY_CYGWIN_WIN32 0)
+
+project(SpingGate C CXX)
+
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+
+include(CTest)
+enable_testing()
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -ftemplate-backtrace-limit=0")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -march=native")
+set(CMAKE_CXX_FLAGS_DEBUG "-O0 -fno-inline -g3")
+set(CMAKE_CXX_FLAGS_RELEASE "-Ofast -g0 -DNDEBUG")
+
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+include_directories(./)
+
+add_executable(spingate main.cpp spingate.cpp)
+target_link_libraries(spingate Threads::Threads)
+#+END_SRC
+
+#+NAME: make-clean
+#+BEGIN_SRC sh :exports results :results output
+mkdir -p build
+cd build
+cmake -DCMAKE_BUILD_TYPE=Release ../
+make
+#+END_SRC
+
+#+RESULTS: make-clean
+: -- Configuring done
+: -- Generating done
+: -- Build files have been written to: /home/sdowney/src/spingate/build
+: [100%] Built target spingate
+
+#+NAME: run-main
+#+BEGIN_SRC sh :exports results :results output
+./build/spingate
+#+END_SRC
+
+#+RESULTS: run-main
+: Open the gate in 1 second:
+: Thread 0 waited 958ns
+: Thread 1 waited 589ns
+: Thread 2 waited 961ns
+: Thread 3 waited 5950ns
+
+
+#+NAME: tangle-buffer
+#+HEADERS: :exports none :results none
+#+BEGIN_SRC emacs-lisp
+(org-babel-tangle)
+#+END_SRC
