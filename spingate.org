@@ -37,6 +37,7 @@ std::atomic<bool> isn't guaranteed to be lock free, but in practice, any archite
 When the spin gate is constructed, we'll mark the gate as closed. Threads will then wait on the flag, spinning until the gate is opened. For this we use Release-Acquire ordering between the open and wait. This will ensure any stores done before the gate is opened will be visible to the thread waiting.
 
 
+#+HEADERS: :exports code :eval never
 #+BEGIN_SRC C++
 // spingate.h                                                       -*-C++-*-
 #ifndef INCLUDED_SPINGATE
@@ -79,6 +80,7 @@ void Gate::open() {
 
 Using is is fairly straightfoward. Create an instance of Gate and wait() on it in each of the worker threads. Once all of the threads are created, open the gate to let them run. In this example, I sleep for one second in order to check that none of the worker threads get past the gate before it is opened.
 
+#+HEADERS: :exports code :eval never
 #+BEGIN_SRC C++
 #include "spingate.h"
 
@@ -145,6 +147,7 @@ Checking how long it took to start let me do two thing. First, play with the new
 
 This is a minimal CMake file for building with the system compiler.
 
+#+HEADERS: :exports code :eval never
 #+BEGIN_SRC cmake
 cmake_minimum_required(VERSION 3.5)
 set(CMAKE_LEGACY_CYGWIN_WIN32 0)
@@ -172,7 +175,7 @@ target_link_libraries(spingate Threads::Threads)
 #+END_SRC
 
 #+NAME: make-clean
-#+BEGIN_SRC sh :exports results :results output
+#+BEGIN_SRC shell :exports results :results output
 mkdir -p build
 cd build
 cmake -DCMAKE_BUILD_TYPE=Release ../
@@ -186,16 +189,16 @@ make
 : [100%] Built target spingate
 
 #+NAME: run-main
-#+BEGIN_SRC sh :exports results :results output
+#+BEGIN_SRC shell :exports results :results output
 ./build/spingate
 #+END_SRC
 
 #+RESULTS: run-main
 : Open the gate in 1 second:
-: Thread 0 waited 958ns
-: Thread 1 waited 589ns
-: Thread 2 waited 961ns
-: Thread 3 waited 5950ns
+: Thread 0 waited 951ns
+: Thread 1 waited 6400ns
+: Thread 2 waited 960ns
+: Thread 3 waited 469ns
 
 
 #+NAME: tangle-buffer
