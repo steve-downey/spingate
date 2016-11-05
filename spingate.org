@@ -142,7 +142,7 @@ The gate is captured in the thread lambda by reference, the thread number by val
 
 But then I became curious about how long the spin actually lasted. Particularly since the guarantees for atomics with release-aquire sematics, or really even sequentially consistent, are about once a change is visible, that changes before are also visible. It's really a function of the underlying hardware how fast the change is visible, and what are the costs of making the happened-before writes available. I'd already observed better overlapping execution using the gate, as opposed to just letting the threads run, so for my initial purposes of making contention more likely, I was satisified. Visibiltity, on my lightly loaded system, seems to be in the range of a few hundred to a couple thousand nanoseconds, which is fairly good.
 
-Checking how long it took to start let me do two thing. First, play with the new-ish chrono library. Second,
+Checking how long it took to start let me do two thing. First, play with the new-ish chrono library. Second, check that the release-acquire sync is working the way I expect. The lambdas that the threads are running capture the start time value by reference. The start time is set just before the gate is opened, and well after the threads have started running. The spingate synchronization ensures that if the state change caused by open is visible, the setting of the start time is also visible.
 * Building and Running
 
 This is a minimal CMake file for building with the system compiler.
@@ -173,6 +173,8 @@ include_directories(./)
 add_executable(spingate main.cpp spingate.cpp)
 target_link_libraries(spingate Threads::Threads)
 #+END_SRC
+
+And here we build a release version of the test executable.
 
 #+NAME: make-clean
 #+BEGIN_SRC shell :exports results :results output
