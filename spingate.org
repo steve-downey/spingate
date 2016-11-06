@@ -163,9 +163,6 @@ project(SpingGate C CXX)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
-include(CTest)
-enable_testing()
-
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -ftemplate-backtrace-limit=0")
@@ -193,6 +190,10 @@ make
 : -- Configuring done
 : -- Generating done
 : -- Build files have been written to: /home/sdowney/src/spingate/build
+: Scanning dependencies of target spingate
+: [ 33%] Building CXX object CMakeFiles/spingate.dir/main.cpp.o
+: [ 66%] Building CXX object CMakeFiles/spingate.dir/spingate.cpp.o
+: [100%] Linking CXX executable spingate
 : [100%] Built target spingate
 
 And then run the resulting executable:
@@ -203,10 +204,10 @@ And then run the resulting executable:
 
 #+RESULTS: run-main
 : Open the gate in 1 second:
-: Thread 0 waited 923ns
-: Thread 1 waited 471ns
-: Thread 2 waited 920ns
-: Thread 3 waited 6393ns
+: Thread 0 waited 958ns
+: Thread 1 waited 124593ns
+: Thread 2 waited 613ns
+: Thread 3 waited 6415ns
 
 
 #+NAME: tangle-buffer
