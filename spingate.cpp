@@ -1,2 +1,2 @@
 #include "spingate.h"
-// Test that component is complete by including
+// Test that header is complete by including

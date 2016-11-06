@@ -17,7 +17,6 @@ set(CMAKE_CXX_FLAGS_DEBUG "-O0 -fno-inline -g3")
 set(CMAKE_CXX_FLAGS_RELEASE "-Ofast -g0 -DNDEBUG")
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
-include_directories(./)
 
 add_executable(spingate main.cpp spingate.cpp)
 target_link_libraries(spingate Threads::Threads)
