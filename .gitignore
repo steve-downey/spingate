@@ -1,0 +1,5 @@
+#ignore in-tree build dirs
+build*/
+
+#ignore exported org file
+spingate.html
