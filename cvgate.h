@@ -5,6 +5,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <atomic>
+#include <thread>
 
 class CVGate
 {
@@ -37,5 +38,6 @@ void CVGate::open() {
     std::unique_lock<std::mutex> lk(lock_);
     flag_ = false;
     cv_.notify_all();
+    std::this_thread::yield();
 }
 #endif

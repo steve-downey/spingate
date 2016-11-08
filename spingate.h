@@ -3,6 +3,7 @@
 #define INCLUDED_SPINGATE
 
 #include <atomic>
+#include <thread>
 
 class SpinGate
 {
@@ -15,7 +16,7 @@ class SpinGate
 };
 
 inline
-SpinGate::SpinGate(){
+SpinGate::SpinGate() {
     // Close the gate
     flag_.store(true, std::memory_order_release);
 }
@@ -29,6 +30,7 @@ void SpinGate::wait() {
 inline
 void SpinGate::open() {
     flag_.store(false, std::memory_order_release);
+    std::this_thread::yield();
 }
 
 

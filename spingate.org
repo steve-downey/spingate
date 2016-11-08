@@ -1,3 +1,5 @@
+#+BLOG: sdowney
+#+POSTID: 164
 #+OPTIONS: ':nil *:t -:t ::t <:t H:3 \n:nil ^:nil arch:headline author:t c:nil
 #+OPTIONS: creator:comment d:(not "LOGBOOK") date:t e:t email:nil f:t inline:t
 #+OPTIONS: num:t p:nil pri:nil stat:t tags:t tasks:t tex:t timestamp:t toc:nil
@@ -45,6 +47,7 @@ When the spin gate is constructed, we'll mark the gate as closed. Threads will t
 #define INCLUDED_SPINGATE
 
 #include <atomic>
+#include <thread>
 
 class SpinGate
 {
@@ -57,7 +60,7 @@ class SpinGate
 };
 
 inline
-SpinGate::SpinGate(){
+SpinGate::SpinGate() {
     // Close the gate
     flag_.store(true, std::memory_order_release);
 }
@@ -71,6 +74,7 @@ void SpinGate::wait() {
 inline
 void SpinGate::open() {
     flag_.store(false, std::memory_order_release);
+    std::this_thread::yield();
 }
 
 
@@ -87,6 +91,9 @@ void SpinGate::open() {
 Using a SpinGate is fairly straightfoward. Create an instance of SpinGate and wait() on it in each of the worker threads. Once all of the threads are created, open the gate to let them run. In this example, I sleep for one second in order to check that none of the worker threads get past the gate before it is opened.
 
 The synchronization is on the SpingGate's std::atomic_bool, flag_. The flag_ is set to true in the constructor, with release memory ordering. The function wait() spins on loading the flag_ with acquire memory ordering, until open() is called, which sets the flag_ to false with release semantics. The other threads that were spinning may now proceed. The release-acquires ordering ensures that happens-before writes by the thread setting up the work and calling open will be read by the threads that were spin waiting.
+
+** Update:
+I've added a yield() call after the open, hinting that the thread opening the gate may be rescheduled and allow the other threads to run. On the system I'm testing on, it doesn't seem to make a difference, but it does seem like the right thing to do, and it does not seem to hurt.
 
 #+HEADERS: :tangle main.cpp :exports code :eval never :main no
 #+BEGIN_SRC C++
@@ -155,10 +162,10 @@ Checking how long it took to start let me do two thing. First, play with the new
 Here are one set of results from running a spingate:
 #+RESULTS: run-main
 : Open the gate in 1 second:
-: Thread 0 waited 781ns
-: Thread 1 waited 359ns
-: Thread 2 waited 785ns
-: Thread 3 waited 4783ns
+: Thread 0 waited 979ns
+: Thread 1 waited 428ns
+: Thread 2 waited 7169ns
+: Thread 3 waited 976ns
 
 * Comparison with Condition Variable gate
 The normal way of implementing a gate like this is with a condition variable, associated mutex, and a plain bool. The mutex guarantees synchronization between the wait and open, rather than the atomic variable in the SpinGate. The unlock/lock pair in mutex have release-acquire semantics. The actual lock and unlock are done by the unique_lock guard.
@@ -172,6 +179,7 @@ The normal way of implementing a gate like this is with a condition variable, as
 #include <mutex>
 #include <condition_variable>
 #include <atomic>
+#include <thread>
 
 class CVGate
 {
@@ -204,6 +212,7 @@ void CVGate::open() {
     std::unique_lock<std::mutex> lk(lock_);
     flag_ = false;
     cv_.notify_all();
+    std::this_thread::yield();
 }
 #endif
 #+END_SRC
@@ -219,10 +228,10 @@ This has the same interface as SpinGate, and is used exactly the same way.
 Running it shows:
 #+RESULTS: run-cvmain
 : Open the gate in 1 second:
-: Thread 0 waited 37116ns
-: Thread 1 waited 84219ns
-: Thread 2 waited 69438ns
-: Thread 3 waited 81063ns
+: Thread 0 waited 13124ns
+: Thread 1 waited 23215ns
+: Thread 2 waited 28548ns
+: Thread 3 waited 45908ns
 
 
 That the overhead of the mutex and condition variable is significant. On the other hand, the system load while it's waiting is much lower. Spingate will use all available CPU, while CVGate yields, so useful work can be done byu the rest of the system.
@@ -316,11 +325,21 @@ make
 #+END_SRC
 
 #+RESULTS: make-clean
-: -- Configuring done
-: -- Generating done
-: -- Build files have been written to: /home/sdowney/src/spingate/build
-: [ 50%] Built target cvgate
-: [100%] Built target spingate
+#+begin_example
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/sdowney/src/spingate/build
+Scanning dependencies of target cvgate
+[ 16%] Building CXX object CMakeFiles/cvgate.dir/cvmain.cpp.o
+[ 33%] Building CXX object CMakeFiles/cvgate.dir/cvgate.cpp.o
+[ 50%] Linking CXX executable cvgate
+[ 50%] Built target cvgate
+Scanning dependencies of target spingate
+[ 66%] Building CXX object CMakeFiles/spingate.dir/main.cpp.o
+[ 83%] Building CXX object CMakeFiles/spingate.dir/spingate.cpp.o
+[100%] Linking CXX executable spingate
+[100%] Built target spingate
+#+end_example
 
 #+NAME: run-main
 #+BEGIN_SRC shell :exports results :results output
@@ -333,6 +352,9 @@ make
 ./build/cvgate
 #+END_SRC
 
+* Org-mode source and git repo
+
+Exported from an org-mode doc. All of the source is available on github at [[https://github.com/steve-downey/spingate][SpinGate]]
 
 #+NAME: tangle-buffer
 #+HEADERS: :exports none :results none
