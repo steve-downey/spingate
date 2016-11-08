@@ -25,6 +25,7 @@
 #+INFOJS_OPT:
 #+LATEX_HEADER:
 #+BABEL: :results output graphics :tangle yes
+#+STARTUP: showeverything
 
 * Building a simple spin gate in C++
 
@@ -45,31 +46,30 @@ When the spin gate is constructed, we'll mark the gate as closed. Threads will t
 
 #include <atomic>
 
-class Gate
+class SpinGate
 {
     std::atomic_bool flag_;
 
   public:
-    Gate();
+    SpinGate();
     void wait();
     void open();
 };
 
-
 inline
-Gate::Gate(){
+SpinGate::SpinGate(){
     // Close the gate
     flag_.store(true, std::memory_order_release);
 }
 
 inline
-void Gate::wait() {
+void SpinGate::wait() {
     while (flag_.load(std::memory_order_acquire))
         ; // spin
 }
 
 inline
-void Gate::open() {
+void SpinGate::open() {
     flag_.store(false, std::memory_order_release);
 }
 
@@ -84,7 +84,9 @@ void Gate::open() {
 #+END_SRC
 
 
-Using is is fairly straightfoward. Create an instance of Gate and wait() on it in each of the worker threads. Once all of the threads are created, open the gate to let them run. In this example, I sleep for one second in order to check that none of the worker threads get past the gate before it is opened.
+Using a SpinGate is fairly straightfoward. Create an instance of SpinGate and wait() on it in each of the worker threads. Once all of the threads are created, open the gate to let them run. In this example, I sleep for one second in order to check that none of the worker threads get past the gate before it is opened.
+
+The synchronization is on the SpingGate's std::atomic_bool, flag_. The flag_ is set to true in the constructor, with release memory ordering. The function wait() spins on loading the flag_ with acquire memory ordering, until open() is called, which sets the flag_ to false with release semantics. The other threads that were spinning may now proceed. The release-acquires ordering ensures that happens-before writes by the thread setting up the work and calling open will be read by the threads that were spin waiting.
 
 #+HEADERS: :tangle main.cpp :exports code :eval never :main no
 #+BEGIN_SRC C++
@@ -99,7 +101,7 @@ Using is is fairly straightfoward. Create an instance of Gate and wait() on it i
 int main()
 {
     std::vector<std::thread> workers;
-    Gate gate;
+    SpinGate gate;
     using time_point = std::chrono::time_point<std::chrono::high_resolution_clock>;
     time_point t1;
     auto threadCount = std::thread::hardware_concurrency();
@@ -146,9 +148,134 @@ for (std::size_t n = 0; n < std::thread::hardware_concurrency(); ++n) {
 
 The gate is captured in the thread lambda by reference, the thread number by value, and when run, overlapping gibberish is printed to the console as soon as open() is called.
 
-But then I became curious about how long the spin actually lasted. Particularly since the guarantees for atomics with release-aquire sematics, or really even sequentially consistent, are about once a change is visible, that changes before are also visible. It's really a function of the underlying hardware how fast the change is visible, and what are the costs of making the happened-before writes available. I'd already observed better overlapping execution using the gate, as opposed to just letting the threads run, so for my initial purposes of making contention more likely, I was satisified. Visibiltity, on my lightly loaded system, seems to be in the range of a few hundred to a couple thousand nanoseconds, which is fairly good.
+But then I became curious about how long the spin actually lasted. Particularly since the guarantees for atomics with release-acquire semantics, or really even sequentially consistent, are about once a change is visible, that changes before are also visible. It's really a function of the underlying hardware how fast the change is visible, and what are the costs of making the happened-before writes available. I'd already observed better overlapping execution using the gate, as opposed to just letting the threads run, so for my initial purposes of making contention more likely, I was satisfied. Visibility, on my lightly loaded system, seems to be in the range of a few hundred to a couple thousand nanoseconds, which is fairly good.
 
-Checking how long it took to start let me do two thing. First, play with the new-ish chrono library. Second, check that the release-acquire sync is working the way I expect. The lambdas that the threads are running capture the start time value by reference. The start time is set just before the gate is opened, and well after the threads have started running. The spingate synchronization ensures that if the state change caused by open is visible, the setting of the start time is also visible.
+Checking how long it took to start let me do two thing. First, play with the new-ish chrono library. Second, check that the release-acquire sync is working the way I expect. The lambdas that the threads are running capture the start time value by reference. The start time is set just before the gate is opened, and well after the threads have started running. The spin gate's synchronization ensures that if the state change caused by open is visible, the setting of the start time is also visible.
+
+Here are one set of results from running a spingate:
+#+RESULTS: run-main
+: Open the gate in 1 second:
+: Thread 0 waited 781ns
+: Thread 1 waited 359ns
+: Thread 2 waited 785ns
+: Thread 3 waited 4783ns
+
+* Comparison with Condition Variable gate
+The normal way of implementing a gate like this is with a condition variable, associated mutex, and a plain bool. The mutex guarantees synchronization between the wait and open, rather than the atomic variable in the SpinGate. The unlock/lock pair in mutex have release-acquire semantics. The actual lock and unlock are done by the unique_lock guard.
+
+#+HEADERS: :tangle cvgate.h :exports code :eval never :main no
+#+BEGIN_SRC C++
+// cvgate.h                                                           -*-C++-*-
+#ifndef INCLUDED_CVGATE
+#define INCLUDED_CVGATE
+
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
+
+class CVGate
+{
+    std::mutex lock_;
+    std::condition_variable cv_;
+    bool flag_;
+
+  public:
+    CVGate();
+
+    void wait();
+    void open();
+};
+
+inline
+CVGate::CVGate()
+: lock_(),
+  cv_(),
+  flag_(true)
+{}
+
+inline
+void CVGate::wait() {
+    std::unique_lock<std::mutex> lk(lock_);
+    cv_.wait(lk, [&](){return !flag_;});
+}
+
+inline
+void CVGate::open() {
+    std::unique_lock<std::mutex> lk(lock_);
+    flag_ = false;
+    cv_.notify_all();
+}
+#endif
+#+END_SRC
+
+#+HEADERS: :tangle cvgate.cpp :exports code :eval never :main no
+#+BEGIN_SRC C++
+#include "cvgate.h"
+// Test that header is complete by including
+#+END_SRC
+
+This has the same interface as SpinGate, and is used exactly the same way.
+
+Running it shows:
+#+RESULTS: run-cvmain
+: Open the gate in 1 second:
+: Thread 0 waited 37116ns
+: Thread 1 waited 84219ns
+: Thread 2 waited 69438ns
+: Thread 3 waited 81063ns
+
+
+That the overhead of the mutex and condition variable is significant. On the other hand, the system load while it's waiting is much lower. Spingate will use all available CPU, while CVGate yields, so useful work can be done byu the rest of the system.
+
+However, for the use I was originally looking at, releasing threads for maximal overlap, spinning is clearly better. There is much less overlap as the cv blocked threads are woken up.
+
+#+HEADERS: :tangle cvmain.cpp :exports none :eval never :main no
+#+BEGIN_SRC C++
+#include "cvgate.h"
+
+#include <vector>
+#include <chrono>
+#include <thread>
+#include <iostream>
+
+
+int main()
+{
+    std::vector<std::thread> workers;
+    CVGate gate;
+    using time_point = std::chrono::time_point<std::chrono::high_resolution_clock>;
+    time_point t1;
+    auto threadCount = std::thread::hardware_concurrency();
+    std::vector<time_point> times;
+    times.resize(threadCount);
+
+    for (size_t n = 0; n < threadCount; ++n) {
+        workers.emplace_back([&gate, t1, &times, n]{
+                gate.wait();
+                time_point t2 = std::chrono::high_resolution_clock::now();
+                times[n] = t2;
+            });
+    }
+
+    std::cout << "Open the gate in 1 second: " << std::endl;
+    using namespace std::chrono_literals;
+    std::this_thread::sleep_for(1s);
+    t1 = std::chrono::high_resolution_clock::now();
+    gate.open();
+
+    for (auto& thr : workers) {
+        thr.join();
+    }
+
+    int threadNum = 0;
+    for (auto& time: times) {
+        auto diff = std::chrono::duration_cast<std::chrono::nanoseconds>(time - t1);
+        std::cout << "Thread " << threadNum++ << " waited " << diff.count() << "ns\n";
+    }
+}
+#+END_SRC
+
+
 * Building and Running
 
 This is a minimal CMake file for building with the system compiler.
@@ -158,7 +285,7 @@ This is a minimal CMake file for building with the system compiler.
 cmake_minimum_required(VERSION 3.5)
 set(CMAKE_LEGACY_CYGWIN_WIN32 0)
 
-project(SpingGate C CXX)
+project(SpinGate C CXX)
 
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
@@ -173,7 +300,9 @@ set(CMAKE_CXX_FLAGS_RELEASE "-Ofast -g0 -DNDEBUG")
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 add_executable(spingate main.cpp spingate.cpp)
+add_executable(cvgate cvmain.cpp cvgate.cpp)
 target_link_libraries(spingate Threads::Threads)
+target_link_libraries(cvgate Threads::Threads)
 #+END_SRC
 
 And here we build a release version of the test executable:
@@ -190,24 +319,19 @@ make
 : -- Configuring done
 : -- Generating done
 : -- Build files have been written to: /home/sdowney/src/spingate/build
-: Scanning dependencies of target spingate
-: [ 33%] Building CXX object CMakeFiles/spingate.dir/main.cpp.o
-: [ 66%] Building CXX object CMakeFiles/spingate.dir/spingate.cpp.o
-: [100%] Linking CXX executable spingate
+: [ 50%] Built target cvgate
 : [100%] Built target spingate
 
-And then run the resulting executable:
 #+NAME: run-main
 #+BEGIN_SRC shell :exports results :results output
 ./build/spingate
 #+END_SRC
 
-#+RESULTS: run-main
-: Open the gate in 1 second:
-: Thread 0 waited 958ns
-: Thread 1 waited 124593ns
-: Thread 2 waited 613ns
-: Thread 3 waited 6415ns
+
+#+NAME: run-cvmain
+#+BEGIN_SRC shell :exports results :results output
+./build/cvgate
+#+END_SRC
 
 
 #+NAME: tangle-buffer

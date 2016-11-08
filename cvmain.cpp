@@ -1,4 +1,4 @@
-#include "spingate.h"
+#include "cvgate.h"
 
 #include <vector>
 #include <chrono>
@@ -9,7 +9,7 @@
 int main()
 {
     std::vector<std::thread> workers;
-    SpinGate gate;
+    CVGate gate;
     using time_point = std::chrono::time_point<std::chrono::high_resolution_clock>;
     time_point t1;
     auto threadCount = std::thread::hardware_concurrency();
