@@ -39,53 +39,7 @@ std::atomic<bool> isn't guaranteed to be lock free, but in practice, any archite
 
 When the spin gate is constructed, we'll mark the gate as closed. Threads will then wait on the flag, spinning until the gate is opened. For this we use Release-Acquire ordering between the open and wait. This will ensure any stores done before the gate is opened will be visible to the thread waiting.
 
-
-#+HEADERS: :tangle spingate.h :exports code :eval never :main no
-#+BEGIN_SRC C++
-// spingate.h                                                       -*-C++-*-
-#ifndef INCLUDED_SPINGATE
-#define INCLUDED_SPINGATE
-
-#include <atomic>
-#include <thread>
-
-class SpinGate
-{
-    std::atomic_bool flag_;
-
-  public:
-    SpinGate();
-    void wait();
-    void open();
-};
-
-inline
-SpinGate::SpinGate() {
-    // Close the gate
-    flag_.store(true, std::memory_order_release);
-}
-
-inline
-void SpinGate::wait() {
-    while (flag_.load(std::memory_order_acquire))
-        ; // spin
-}
-
-inline
-void SpinGate::open() {
-    flag_.store(false, std::memory_order_release);
-    std::this_thread::yield();
-}
-
-
-#endif
-#+END_SRC
-
-#+HEADERS: :tangle spingate.cpp :exports code :eval never :main no
-#+BEGIN_SRC C++
-#include "spingate.h"
-// Test that header is complete by including
-#+END_SRC
+#+INCLUDE: "./lib/spingate.h" src C++
 
 
 Using a SpinGate is fairly straightfoward. Create an instance of SpinGate and wait() on it in each of the worker threads. Once all of the threads are created, open the gate to let them run. In this example, I sleep for one second in order to check that none of the worker threads get past the gate before it is opened.
@@ -95,51 +49,7 @@ The synchronization is on the SpingGate's std::atomic_bool, flag_. The flag_ is 
 ** Update:
 I've added a yield() call after the open, hinting that the thread opening the gate may be rescheduled and allow the other threads to run. On the system I'm testing on, it doesn't seem to make a difference, but it does seem like the right thing to do, and it does not seem to hurt.
 
-#+HEADERS: :tangle main.cpp :exports code :eval never :main no
-#+BEGIN_SRC C++
-#include "spingate.h"
-
-#include <vector>
-#include <chrono>
-#include <thread>
-#include <iostream>
-
-
-int main()
-{
-    std::vector<std::thread> workers;
-    SpinGate gate;
-    using time_point = std::chrono::time_point<std::chrono::high_resolution_clock>;
-    time_point t1;
-    auto threadCount = std::thread::hardware_concurrency();
-    std::vector<time_point> times;
-    times.resize(threadCount);
-
-    for (size_t n = 0; n < threadCount; ++n) {
-        workers.emplace_back([&gate, t1, &times, n]{
-                gate.wait();
-                time_point t2 = std::chrono::high_resolution_clock::now();
-                times[n] = t2;
-            });
-    }
-
-    std::cout << "Open the gate in 1 second: " << std::endl;
-    using namespace std::chrono_literals;
-    std::this_thread::sleep_for(1s);
-    t1 = std::chrono::high_resolution_clock::now();
-    gate.open();
-
-    for (auto& thr : workers) {
-        thr.join();
-    }
-
-    int threadNum = 0;
-    for (auto& time: times) {
-        auto diff = std::chrono::duration_cast<std::chrono::nanoseconds>(time - t1);
-        std::cout << "Thread " << threadNum++ << " waited " << diff.count() << "ns\n";
-    }
-}
-#+END_SRC
+#+INCLUDE: "./main/main.cpp" src C++
 
 I'd originally had the body of the threads just spitting out that they were running on std::cout, and the lack of execution before the gate, plus the overlapping output, being evidence of the gate working. That looked like:
 
@@ -170,58 +80,8 @@ Here are one set of results from running a spingate:
 * Comparison with Condition Variable gate
 The normal way of implementing a gate like this is with a condition variable, associated mutex, and a plain bool. The mutex guarantees synchronization between the wait and open, rather than the atomic variable in the SpinGate. The unlock/lock pair in mutex have release-acquire semantics. The actual lock and unlock are done by the unique_lock guard.
 
-#+HEADERS: :tangle cvgate.h :exports code :eval never :main no
-#+BEGIN_SRC C++
-// cvgate.h                                                           -*-C++-*-
-#ifndef INCLUDED_CVGATE
-#define INCLUDED_CVGATE
+#+INCLUDE: "./lib/cvgate.h" src C++
 
-#include <mutex>
-#include <condition_variable>
-#include <atomic>
-#include <thread>
-
-class CVGate
-{
-    std::mutex lock_;
-    std::condition_variable cv_;
-    bool flag_;
-
-  public:
-    CVGate();
-
-    void wait();
-    void open();
-};
-
-inline
-CVGate::CVGate()
-: lock_(),
-  cv_(),
-  flag_(true)
-{}
-
-inline
-void CVGate::wait() {
-    std::unique_lock<std::mutex> lk(lock_);
-    cv_.wait(lk, [&](){return !flag_;});
-}
-
-inline
-void CVGate::open() {
-    std::unique_lock<std::mutex> lk(lock_);
-    flag_ = false;
-    cv_.notify_all();
-    std::this_thread::yield();
-}
-#endif
-#+END_SRC
-
-#+HEADERS: :tangle cvgate.cpp :exports code :eval never :main no
-#+BEGIN_SRC C++
-#include "cvgate.h"
-// Test that header is complete by including
-#+END_SRC
 
 This has the same interface as SpinGate, and is used exactly the same way.
 
@@ -238,81 +98,12 @@ That the overhead of the mutex and condition variable is significant. On the oth
 
 However, for the use I was originally looking at, releasing threads for maximal overlap, spinning is clearly better. There is much less overlap as the cv blocked threads are woken up.
 
-#+HEADERS: :tangle cvmain.cpp :exports none :eval never :main no
-#+BEGIN_SRC C++
-#include "cvgate.h"
-
-#include <vector>
-#include <chrono>
-#include <thread>
-#include <iostream>
-
-
-int main()
-{
-    std::vector<std::thread> workers;
-    CVGate gate;
-    using time_point = std::chrono::time_point<std::chrono::high_resolution_clock>;
-    time_point t1;
-    auto threadCount = std::thread::hardware_concurrency();
-    std::vector<time_point> times;
-    times.resize(threadCount);
-
-    for (size_t n = 0; n < threadCount; ++n) {
-        workers.emplace_back([&gate, t1, &times, n]{
-                gate.wait();
-                time_point t2 = std::chrono::high_resolution_clock::now();
-                times[n] = t2;
-            });
-    }
-
-    std::cout << "Open the gate in 1 second: " << std::endl;
-    using namespace std::chrono_literals;
-    std::this_thread::sleep_for(1s);
-    t1 = std::chrono::high_resolution_clock::now();
-    gate.open();
-
-    for (auto& thr : workers) {
-        thr.join();
-    }
-
-    int threadNum = 0;
-    for (auto& time: times) {
-        auto diff = std::chrono::duration_cast<std::chrono::nanoseconds>(time - t1);
-        std::cout << "Thread " << threadNum++ << " waited " << diff.count() << "ns\n";
-    }
-}
-#+END_SRC
-
 
 * Building and Running
 
-This is a minimal CMake file for building with the system compiler.
+This CMake file pulls together the various directories I have scatter things into, as well as setting up the options for building with a locally installed clang with its libc++.
 
-#+HEADERS: :tangle CMakeLists.txt :exports code :eval never
-#+BEGIN_SRC cmake
-cmake_minimum_required(VERSION 3.5)
-set(CMAKE_LEGACY_CYGWIN_WIN32 0)
-
-project(SpinGate C CXX)
-
-set(THREADS_PREFER_PTHREAD_FLAG ON)
-find_package(Threads REQUIRED)
-
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -ftemplate-backtrace-limit=0")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -march=native")
-set(CMAKE_CXX_FLAGS_DEBUG "-O0 -fno-inline -g3")
-set(CMAKE_CXX_FLAGS_RELEASE "-Ofast -g0 -DNDEBUG")
-
-include_directories(${CMAKE_CURRENT_SOURCE_DIR})
-
-add_executable(spingate main.cpp spingate.cpp)
-add_executable(cvgate cvmain.cpp cvgate.cpp)
-target_link_libraries(spingate Threads::Threads)
-target_link_libraries(cvgate Threads::Threads)
-#+END_SRC
+#+INCLUDE: "./CMakeLists.txt" src cmake
 
 And here we build a release version of the test executable:
 
@@ -343,13 +134,13 @@ Scanning dependencies of target spingate
 
 #+NAME: run-main
 #+BEGIN_SRC shell :exports results :results output
-./build/spingate
+./build/main/spin
 #+END_SRC
 
 
 #+NAME: run-cvmain
 #+BEGIN_SRC shell :exports results :results output
-./build/cvgate
+./build/main/cv
 #+END_SRC
 
 * Org-mode source and git repo
