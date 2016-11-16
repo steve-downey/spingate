@@ -11,9 +11,9 @@
 class Batch
 {
   public:
-    using Task = std::function<void()>;
+    template <class Function, class... Args>
+    void add(Function&& f, Args&&... args);
 
-    void add(Task task);
     void run();
 
   private:
@@ -22,11 +22,11 @@ class Batch
 
 };
 
-void Batch::add(Task task)
-{
-    workers_.emplace_back([this, task]{
+template <class Function, class... Args>
+void Batch::add(Function&& f, Args&&... args) {
+    workers_.emplace_back([this, f = std::forward<Function>(f), args...]() {
             gate_.wait();
-            task();
+            f(args...);
         });
 }
 

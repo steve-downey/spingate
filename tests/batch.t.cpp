@@ -71,5 +71,17 @@ TEST_F(BatchTest, run100Test)
     EXPECT_EQ(100u, called);
 }
 
+TEST_F(BatchTest, runArgTest)
+{
+    Batch batch;
+    int i = 0;
+    batch.add([&i](int k){ i = k;}, 1);
+
+    EXPECT_EQ(0, i);
+
+    batch.run();
+
+    EXPECT_EQ(1, i);
+}
 
 }
