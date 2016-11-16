@@ -7,11 +7,10 @@
 #include <atomic>
 #include <thread>
 
-class CVGate
-{
-    std::mutex lock_;
+class CVGate {
+    std::mutex              lock_;
     std::condition_variable cv_;
-    bool flag_;
+    bool                    flag_;
 
   public:
     CVGate();
@@ -20,21 +19,14 @@ class CVGate
     void open();
 };
 
-inline
-CVGate::CVGate()
-: lock_(),
-  cv_(),
-  flag_(true)
-{}
+inline CVGate::CVGate() : lock_(), cv_(), flag_(true) {}
 
-inline
-void CVGate::wait() {
+inline void CVGate::wait() {
     std::unique_lock<std::mutex> lk(lock_);
-    cv_.wait(lk, [&](){return !flag_;});
+    cv_.wait(lk, [&]() { return !flag_; });
 }
 
-inline
-void CVGate::open() {
+inline void CVGate::open() {
     std::unique_lock<std::mutex> lk(lock_);
     flag_ = false;
     cv_.notify_all();

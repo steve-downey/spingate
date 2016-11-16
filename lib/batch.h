@@ -8,8 +8,7 @@
 #include <vector>
 #include <thread>
 
-class Batch
-{
+class Batch {
   public:
     template <class Function, class... Args>
     void add(Function&& f, Args&&... args);
@@ -18,20 +17,18 @@ class Batch
 
   private:
     std::vector<std::thread> workers_;
-    SpinGate gate_;
-
+    SpinGate                 gate_;
 };
 
 template <class Function, class... Args>
 void Batch::add(Function&& f, Args&&... args) {
-    workers_.emplace_back([this, f = std::forward<Function>(f), args...]() {
-            gate_.wait();
-            f(args...);
-        });
+    workers_.emplace_back([ this, f = std::forward<Function>(f), args... ]() {
+        gate_.wait();
+        f(args...);
+    });
 }
 
-void Batch::run()
-{
+void Batch::run() {
     gate_.open();
     for (auto& thr : workers_) {
         thr.join();
