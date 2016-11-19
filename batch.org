@@ -1,0 +1,189 @@
+#+BLOG: sdowney
+#+POSTID: 169
+#+OPTIONS: ':nil *:t -:t ::t <:t H:3 \n:nil ^:nil arch:headline author:t c:nil
+#+OPTIONS: creator:comment d:(not "LOGBOOK") date:t e:t email:nil f:t inline:t
+#+OPTIONS: num:t p:nil pri:nil stat:t tags:t tasks:t tex:t timestamp:t toc:nil
+#+OPTIONS: todo:t |:t
+#+TITLE: batch: running functions under a spingate
+#+DATE: <2016-11-16 Wed>
+#+AUTHOR: Steve Downey
+#+EMAIL: sdowney@sdowney.org
+#+LANGUAGE: en
+#+SELECT_TAGS: export
+#+EXCLUDE_TAGS: noexport
+#+CREATOR: <a href="http://www.gnu.org/software/emacs/">Emacs</a> 25.1.3 (<a href="http://orgmode.org">Org</a> mode 9.0)
+#+OPTIONS: html-link-use-abs-url:nil html-postamble:auto html-preamble:t
+#+OPTIONS: html-scripts:t html-style:t html5-fancy:nil tex:t
+#+HTML_DOCTYPE: xhtml-strict
+#+HTML_CONTAINER: div
+#+DESCRIPTION:
+#+KEYWORDS:
+#+HTML_LINK_HOME:
+#+HTML_LINK_UP:
+#+HTML_MATHJAX:
+#+HTML_HEAD: <link href="http://sdowney.org/css/smd-zenburn.css" rel="stylesheet"></link>
+#+HTML_HEAD_EXTRA:
+#+SUBTITLE:
+#+INFOJS_OPT:
+#+LATEX_HEADER:
+#+BABEL: :results output graphics :tangle yes
+#+STARTUP: showeverything
+
+
+* A batch of tasks to run
+
+This adds a rather simple component to spingate orchestrating a batch of tasks to be run, gated by the spingate. The tasks are added one at a time, a thread is created for the task, and the thread waits on the spingate to open before calling the task.
+
+Or at least that's how it started. Task was originally a std::function<void()>, which is essentially the interface of the thread pool I use. I realized, however, that I don't actually need to restrict the interface quite that much. Thread takes a much wider range of things to run, and I can do the same thing. I have to forward the supplied callable and arguments into the lambda that the thread is running.
+
+The key bit of code is
+#+BEGIN_SRC C++
+template <class Function, class... Args>
+void Batch::add(Function&& f, Args&&... args) {
+    workers_.emplace_back([ this, f = std::forward<Function>(f), args... ]() {
+            gate_.wait();
+            f(args...);
+        });
+}
+
+#+END_SRC
+
+There's a lot of line noise in there, and it really looked simpler when it was just taking a std::function<void()>, but it's not terrible. We take an object of type Function and a parameter pack of type Args by forwarding reference. That gets captured by the lambda, where we forward the function to the lambda, and capture the parameter pack. Inside the lambda we call the function with the pack, f(args). It's probable that I should have used std::invoke there, which handles some of the more interesting cases of calling a thing with arguments. But this was sufficient unto the day. The captured this allows access to the gate_ variable the we're waiting on. The workers_ are a vector of threads that we'll later run run through and join() on, after open()ing the gate_.
+
+#+BEGIN_SRC C++
+void Batch::run() {
+    gate_.open();
+    for (auto& thr : workers_) {
+        thr.join();
+    }
+}
+
+#+END_SRC
+
+
+That's really all there is to Batch. It's a middle connective glue component. Does one thing, and tries to do it obviously well. That is important since I'm trying to build up test infrastructure, and testing the test infrastrucure is a hard problem.
+
+I have reorganized the code repo in order to do some light testing, though.
+
+* GTest
+
+I've pushed things about in the source repo, moving the code into a library directory, which means I can link it into the existing mains, as well as into new gtests. In the CMake system, I've conditioned building tests on the existence of the googletest project being available as a subdirectory.
+I use enough different compilers and build options that trying to use a system build of gtest just doesn't work. The best, and recommended, choice, is to build googletest as part of your project. That way any ABI impacting subtlety, like using a different C++ standard library, is take care of automatically.
+The bit of cmake magic is in the top level CMakeLists.txt :
+#+BEGIN_SRC cmake
+# A directory to find Google Test sources.
+if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/googletest/CMakeLists.txt")
+  add_subdirectory(googletest EXCLUDE_FROM_ALL)
+  add_subdirectory(tests)
+else()
+  message("GTEST Not Found at ${CMAKE_CURRENT_SOURCE_DIR}/googletest/CMakeLists.txt")
+endif()
+
+#+END_SRC
+This looks for googletest to be available, and if it is, add it to the project, and my tests subdirectory, otherwise issue a message. I prefer this to attempting to fix up the missing gtest automatically. That always seems to cause me problems, such as when I'm operating disconnected, on a train, like right now.
+
+The tests I have are pretty simple, not much more than primitive breathing tests.
+#+BEGIN_SRC C++
+TEST_F(BatchTest, run1Test)
+{
+    Batch batch;
+    batch.add([this](){incrementCalled();});
+
+    EXPECT_EQ(0u, called);
+
+    batch.run();
+
+    EXPECT_EQ(1u, called);
+}
+
+#+END_SRC
+
+or, to make sure that passing arguments worked
+#+BEGIN_SRC C++
+TEST_F(BatchTest, runArgTest)
+{
+    Batch batch;
+    int i = 0;
+    batch.add([&i](int k){ i = k;}, 1);
+
+    EXPECT_EQ(0, i);
+
+    batch.run();
+
+    EXPECT_EQ(1, i);
+}
+#+END_SRC
+
+I don't actually expect to find runtime errors with these tests. They exercise ths component just enough that I'm not generating compile errors in expected use cases. Template code can be tricky that way. Templates that aren't instantiated can have horrible errors, but the compiler is willing to let them pass, if they mostly parse.
+
+SFINAE may not be your friend.
+
+* Clang builds with current libc++
+
+Building clang and libc++ locally is getting easier and easier. Using that is still a bit difficult. But there are some reasons to do so. One is just being able to cross check your code for sanity. I won't reproduce building clang and libc++ here. It's really at this point just checking out the repos in the right places and running cmake with something like:
+#+BEGIN_SRC shell
+cmake  -DCMAKE_INSTALL_PREFIX=~/install/llvm-master/ -DLLVM_ENABLE_LIBCXX=yes  -DCMAKE_BUILD_TYPE=Release   ../llvm/
+
+#+END_SRC
+
+Using that, at least from within cmake, is more complicated. Cmake has a strong bias towards using the system compiler. It also has a distinct problem with repeating builds.
+
+NEVER edit your CMakeCache.txt. You can't do anything with it. All the paths are hard coded. Always start over. Either keep the command line around, or create a cmake initial cache file, which isn't the same thing at all as the CMakeCache.txt file.
+
+Right now, I'm cargo-culting around code in my cmake files that checks if I've defined an LLVM_ROOT, and if I have supply the flags to ignore all the system files, and use the ones from the installed LLVM_ROOT, including some rpath fixup. There might be some way to convince cmake to do it, but there's also only so much I will fight my metabuild system.
+
+#+BEGIN_SRC cmake
+  if(LLVM_ROOT)
+    message(STATUS "LLVM Root: ${LLVM_ROOT}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -nostdinc++ -isystem ${LLVM_ROOT}/include/c++/v1")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L ${LLVM_ROOT}/lib -l c++ -l c++abi")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath,${LLVM_ROOT}/lib")
+  else()
+
+
+#+END_SRC
+
+I only check for that if the compiler I've chosen is a clang compiler, and it's not normally part of my environment.
+
+
+* Direction
+
+Overall, what I want out of this library is to be able to stress test some nominally mt-safe code, and check that the conditions that I think hold are true. It's heavily influenced by jcstress, but, because this is C+++, it will be rendered quite differently.
+
+For what I'm considering, look at [[https://shipilev.net/blog/2016/close-encounters-of-jmm-kind/][Close Encounters of The Java Memory Model Kind]]
+
+I want to be able to specify a state, with operations that mutate and observe the state. I want to be able to collect those observations in a deterministic way, which may require cooperation from the observers. I want to be able to collect the observations and report how many times each set of observations was obtained.
+
+Something like:
+#+BEGIN_SRC C++
+class State {
+    int x_;
+    int y_;
+
+  public:
+    typedef std::tuple<int, int, int, int> Result;
+    State() : x_(0), y_(0) {}
+    void writer1() {
+        y_ = 1;
+        x_ = 1;
+    }
+    void reader1(Result& read) {
+        std::get<0>(read) = x_;
+        std::get<1>(read) = y_;
+    }
+    void reader2(Result& read) {
+        std::get<2>(read) = x_;
+        std::get<3>(read) = y_;
+    }
+};
+#+END_SRC
+
+Running the writers and readers over different threads and observing the possible results. On some architectures, reader1 and reader2 can see entirely different orders, even though y_ will happen before x_, you might see x_ written and not y_.
+
+What I'd eventually like to be able to do is say things like, "This function will only be evaluated once", and have some evidence to back that up.
+
+So the next step is something that will take a State and schedule all of the actions with appropriate parameters in a Batch, and produce the overall Result. Then something that will do that many many times, accumulating all of the results. And since this isn't java, so we don't have reflection techniques, the State class is going to have to cooperate a bit. The Result typedef is one way. It will also have to produce all of the actions that need to be batched, in some heterogenous form that I can then run.
+
+
+* Source Code
+Exported from an org-mode doc, batch.org, which is available, with all of the source on github at [[https://github.com/steve-downey/spingate][SpinGate]].
