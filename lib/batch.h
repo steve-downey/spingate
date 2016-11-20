@@ -28,6 +28,7 @@ void Batch::add(Function&& f, Args&&... args) {
     });
 }
 
+inline
 void Batch::run() {
     gate_.open();
     for (auto& thr : workers_) {
