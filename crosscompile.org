@@ -1,0 +1,131 @@
+#+OPTIONS: ':nil *:t -:t ::t <:t H:3 \n:nil ^:nil arch:headline author:t
+#+OPTIONS: broken-links:nil c:nil creator:nil d:(not "LOGBOOK") date:t e:t
+#+OPTIONS: email:nil f:t inline:t num:t p:nil pri:nil prop:nil stat:t tags:t
+#+OPTIONS: tasks:t tex:t timestamp:t title:t toc:t todo:t |:t
+#+TITLE: Cross Compiling
+#+DATE: <2016-11-25 Fri>
+#+AUTHOR: Steve Downey
+#+EMAIL: sdowney@sdowney.org
+#+LANGUAGE: en
+#+SELECT_TAGS: export
+#+EXCLUDE_TAGS: noexport
+#+CREATOR: Emacs 25.1.3 (Org mode 9.0.1)
+#+OPTIONS: html-link-use-abs-url:nil html-postamble:auto html-preamble:t
+#+OPTIONS: html-scripts:t html-style:t html5-fancy:nil tex:t
+#+HTML_DOCTYPE: xhtml-strict
+#+HTML_CONTAINER: div
+#+DESCRIPTION:
+#+KEYWORDS:
+#+HTML_LINK_HOME:
+#+HTML_LINK_UP:
+#+HTML_MATHJAX:
+#+HTML_HEAD: <link href="http://sdowney.org/css/smd-zenburn.css" rel="stylesheet"></link>
+#+HTML_HEAD_EXTRA:
+#+SUBTITLE:
+#+INFOJS_OPT:
+#+CREATOR: <a href="http://www.gnu.org/software/emacs/">Emacs</a> 25.1.3 (<a href="http://orgmode.org">Org</a> mode 9.0.1)
+#+LATEX_HEADER:
+
+* Setting up Cross Compiling
+
+In order to test out some of these multi-threaded tool properly, I really need to run them on a less strict platform than x86_64. X86_64 provides a lot of guarantees about sequential consistency and atomicity that hides problems that will happen on architectures that are not as strong, like power, sparc, and arm. Fortunately, one of the toys I have is a recent Raspberry Pi 3, which is based on a recent arm chip. Unfortunately, Raspbian, the normal linux distro for the Raspberry Pi is also based on a fairly old debian distro, with a fairly old compiler. Linaro is back porting their arm code genaration fixes to the old releases, but I'm more interested in the recent C++ language features. So I could attempt to compile GCC 6 on the RPi, or I can cross compile from my normal machine. I decided to cross compile, since if that worked, it would be considerably easier. It turnd out to be pretty straightfoward.
+
+#+BEGIN_SRC shell
+sudo apt-get install g++-6-arm-linux-gnueabihf
+
+#+END_SRC
+
+#+RESULTS:
+
+This is mostly because I'm already doing software development on the box, so I didn't need any of the other parts of the compiler ecosystem, just the right c++ toolchain. The hardest part is determining the right one. There are a few flavors for arm development. The RPi is the gnu extended abi, with hardware float. The Ubuntu repositories only supply linux variants, which is sensible. Since that top level package ends up installing not just the compilers, but a libstdc++ and libc for arm-linux-gnueabihf, which need to know much more about the OS in order to interface with it.
+
+This does lead to one snag, though. The versions of the libraries are not the ones available on the RPi. Which is a problem, since I want to use modern, or maybe even post-modern C++. There are two ways of dealing with this, and I've ended up using both.
+
+* Sysroot
+
+When cross compiling, a sysroot is a system that looks just like the root file system of the target platform. It will have /lib, /usr/lib, etc, with the versions of the libraries that you want. You can either use a disk image, mounted somewhere convienent, or you can just mount the target computer's root filesystem somewhere convienent. If you do that, you'll have access to all of the libraries available, not just the minimal set typically available on a prepackaged sysroot. So that's what I did.
+
+#+BEGIN_SRC shell
+sshfs sdowney@cobweb.local:/ /home/sdowney/mnt/rpi/ -o transform_symlinks -o allow_other
+#+END_SRC
+
+#+RESULTS:
+
+Cobweb is my Raspberry Pi box, and zeroconf makes the current ip address available as cobweb.local. I'm mounting that into ~/mnt/rpi, transforming symlinks so that they actually work, and allowing others to access the mounted fs.
+
+With that I can specify the sysroot, and have the compiler look there for libraries:
+
+#+BEGIN_SRC shell
+arm-linux-gnueabihf-g++-6 -v --sysroot ~/mnt/rpi/ -o hello hw.cpp
+#+END_SRC
+
+#+BEGIN_EXAMPLE
+Using built-in specs.
+COLLECT_GCC=arm-linux-gnueabihf-g++-6
+COLLECT_LTO_WRAPPER=/usr/lib/gcc-cross/arm-linux-gnueabihf/6/lto-wrapper
+Target: arm-linux-gnueabihf
+Configured with: ../src/configure -v --with-pkgversion='Ubuntu 6.2.0-5ubuntu12' --with-bugurl=file:///usr/share/doc/gcc-6/README.Bugs --enable-languages=c,ada,c++,java,go,d,fortran,objc,obj-c++ --prefix=/usr --program-suffix=-6 --enable-shared --enable-linker-build-id --libexecdir=/usr/lib --without-included-gettext --enable-threads=posix --libdir=/usr/lib --enable-nls --with-sysroot=/ --enable-clocale=gnu --enable-libstdcxx-debug --enable-libstdcxx-time=yes --with-default-libstdcxx-abi=new --enable-gnu-unique-object --disable-libitm --disable-libquadmath --enable-plugin --with-system-zlib --disable-browser-plugin --enable-java-awt=gtk --enable-gtk-cairo --with-java-home=/usr/lib/jvm/java-1.5.0-gcj-6-armhf-cross/jre --enable-java-home --with-jvm-root-dir=/usr/lib/jvm/java-1.5.0-gcj-6-armhf-cross --with-jvm-jar-dir=/usr/lib/jvm-exports/java-1.5.0-gcj-6-armhf-cross --with-arch-directory=arm --with-ecj-jar=/usr/share/java/eclipse-ecj.jar --disable-libgcj --enable-objc-gc --enable-multiarch --enable-multilib --disable-sjlj-exceptions --with-arch=armv7-a --with-fpu=vfpv3-d16 --with-float=hard --with-mode=thumb --disable-werror --enable-multilib --enable-checking=release --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=arm-linux-gnueabihf --program-prefix=arm-linux-gnueabihf- --includedir=/usr/arm-linux-gnueabihf/include
+Thread model: posix
+gcc version 6.2.0 20161005 (Ubuntu 6.2.0-5ubuntu12)
+COLLECT_GCC_OPTIONS='-v' '-o' 'hello' '-shared-libgcc' '-march=armv7-a' '-mfloat-abi=hard' '-mfpu=vfpv3-d16' '-mthumb' '-mtls-dialect=gnu'
+ /usr/lib/gcc-cross/arm-linux-gnueabihf/6/cc1plus -quiet -v -imultiarch arm-linux-gnueabihf -isysroot /home/sdowney/mnt/rpi/ -D_GNU_SOURCE hw.cpp -quiet -dumpbase hw.cpp -march=armv7-a -mfloat-abi=hard -mfpu=vfpv3-d16 -mthumb -mtls-dialect=gnu -auxbase hw -version -fstack-protector-strong -Wformat -Wformat-security -o /tmp/ccUwr5Jd.s
+GNU C++14 (Ubuntu 6.2.0-5ubuntu12) version 6.2.0 20161005 (arm-linux-gnueabihf)
+	compiled by GNU C version 6.2.0 20161005, GMP version 6.1.1, MPFR version 3.1.5, MPC version 1.0.3, isl version 0.15
+GGC heuristics: --param ggc-min-expand=100 --param ggc-min-heapsize=131072
+ignoring nonexistent directory "/home/sdowney/mnt/rpi/usr/local/include/arm-linux-gnueabihf"
+#include "..." search starts here:
+#include <...> search starts here:
+ /usr/lib/gcc-cross/arm-linux-gnueabihf/6/../../../../arm-linux-gnueabihf/include/c++/6
+ /usr/lib/gcc-cross/arm-linux-gnueabihf/6/../../../../arm-linux-gnueabihf/include/c++/6/arm-linux-gnueabihf
+ /usr/lib/gcc-cross/arm-linux-gnueabihf/6/../../../../arm-linux-gnueabihf/include/c++/6/backward
+ /usr/lib/gcc-cross/arm-linux-gnueabihf/6/include
+ /usr/lib/gcc-cross/arm-linux-gnueabihf/6/include-fixed
+ /usr/lib/gcc-cross/arm-linux-gnueabihf/6/../../../../arm-linux-gnueabihf/include
+ /home/sdowney/mnt/rpi/usr/include/arm-linux-gnueabihf
+ /home/sdowney/mnt/rpi/usr/include
+End of search list.
+GNU C++14 (Ubuntu 6.2.0-5ubuntu12) version 6.2.0 20161005 (arm-linux-gnueabihf)
+	compiled by GNU C version 6.2.0 20161005, GMP version 6.1.1, MPFR version 3.1.5, MPC version 1.0.3, isl version 0.15
+GGC heuristics: --param ggc-min-expand=100 --param ggc-min-heapsize=131072
+Compiler executable checksum: 8867fa57a9cbba18ebd7880e42ca78ba
+COLLECT_GCC_OPTIONS='-v' '-o' 'hello' '-shared-libgcc' '-march=armv7-a' '-mfloat-abi=hard' '-mfpu=vfpv3-d16' '-mthumb' '-mtls-dialect=gnu'
+ /usr/lib/gcc-cross/arm-linux-gnueabihf/6/../../../../arm-linux-gnueabihf/bin/as -v -march=armv7-a -mfloat-abi=hard -mfpu=vfpv3-d16 -meabi=5 -o /tmp/ccJH2IA5.o /tmp/ccUwr5Jd.s
+GNU assembler version 2.27 (arm-linux-gnueabihf) using BFD version (GNU Binutils for Ubuntu) 2.27
+COMPILER_PATH=/usr/lib/gcc-cross/arm-linux-gnueabihf/6/:/usr/lib/gcc-cross/arm-linux-gnueabihf/6/:/usr/lib/gcc-cross/arm-linux-gnueabihf/:/usr/lib/gcc-cross/arm-linux-gnueabihf/6/:/usr/lib/gcc-cross/arm-linux-gnueabihf/:/usr/lib/gcc-cross/arm-linux-gnueabihf/6/../../../../arm-linux-gnueabihf/bin/
+LIBRARY_PATH=/usr/lib/gcc-cross/arm-linux-gnueabihf/6/:/usr/lib/gcc-cross/arm-linux-gnueabihf/6/../../../../arm-linux-gnueabihf/lib/../lib/:/home/sdowney/mnt/rpi/lib/arm-linux-gnueabihf/:/home/sdowney/mnt/rpi/lib/../lib/:/home/sdowney/mnt/rpi/usr/lib/arm-linux-gnueabihf/:/home/sdowney/mnt/rpi/usr/lib/../lib/:/usr/lib/gcc-cross/arm-linux-gnueabihf/6/../../../../arm-linux-gnueabihf/lib/:/home/sdowney/mnt/rpi/lib/:/home/sdowney/mnt/rpi/usr/lib/
+COLLECT_GCC_OPTIONS='-v' '-o' 'hello' '-shared-libgcc' '-march=armv7-a' '-mfloat-abi=hard' '-mfpu=vfpv3-d16' '-mthumb' '-mtls-dialect=gnu'
+ /usr/lib/gcc-cross/arm-linux-gnueabihf/6/collect2 -plugin /usr/lib/gcc-cross/arm-linux-gnueabihf/6/liblto_plugin.so -plugin-opt=/usr/lib/gcc-cross/arm-linux-gnueabihf/6/lto-wrapper -plugin-opt=-fresolution=/tmp/cctgBCzX.res -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc --sysroot=/home/sdowney/mnt/rpi/ --build-id --eh-frame-hdr -dynamic-linker /lib/ld-linux-armhf.so.3 -X --hash-style=gnu --as-needed -m armelf_linux_eabi -z relro -o hello /usr/lib/gcc-cross/arm-linux-gnueabihf/6/../../../../arm-linux-gnueabihf/lib/../lib/crt1.o /usr/lib/gcc-cross/arm-linux-gnueabihf/6/../../../../arm-linux-gnueabihf/lib/../lib/crti.o /usr/lib/gcc-cross/arm-linux-gnueabihf/6/crtbegin.o -L/usr/lib/gcc-cross/arm-linux-gnueabihf/6 -L/usr/lib/gcc-cross/arm-linux-gnueabihf/6/../../../../arm-linux-gnueabihf/lib/../lib -L/home/sdowney/mnt/rpi/lib/arm-linux-gnueabihf -L/home/sdowney/mnt/rpi/lib/../lib -L/home/sdowney/mnt/rpi/usr/lib/arm-linux-gnueabihf -L/home/sdowney/mnt/rpi/usr/lib/../lib -L/usr/lib/gcc-cross/arm-linux-gnueabihf/6/../../../../arm-linux-gnueabihf/lib -L/home/sdowney/mnt/rpi/lib -L/home/sdowney/mnt/rpi/usr/lib /tmp/ccJH2IA5.o -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc /usr/lib/gcc-cross/arm-linux-gnueabihf/6/crtend.o /usr/lib/gcc-cross/arm-linux-gnueabihf/6/../../../../arm-linux-gnueabihf/lib/../lib/crtn.o
+COLLECT_GCC_OPTIONS='-v' '-o' 'hello' '-shared-libgcc' '-march=armv7-a' '-mfloat-abi=hard' '-mfpu=vfpv3-d16' '-mthumb' '-mtls-dialect=gnu'
+
+#+END_EXAMPLE
+
+Now, note that the compiler will prefer the locally installed versions before using the ones in the sysroot. This is fine, until I need to install something. Then I'll get an error because the library on the RPi is too old. Particularly libstdc++. This works well for the non-core language libraries, though. Or at least ones that don't have C++ in their interface. Mixing C++ versions is a horrible minefield. The easiest way to deal with it is to avoid it.
+
+* Static linking
+
+Recent versions of gcc allow libstdc++ to be linked statically. It increases the size of the resulting executable, but with less worries about deployment issues.
+#+BEGIN_EXAMPLE
+-static-libstdc++
+#+END_EXAMPLE
+
+That will cause the compiler driver to direct the linker to prefer the static version of libstdc++, rather than the shared version. And I don't have to worry about deploying or upgrading the system libraries on the target box.
+
+Note, this isn't really a supported deployment configuration. So any bugs are going to be my problem.
+
+* CMake
+
+I've been using CMake to generate the build system, so I need to explain to it how to use the cross compiler instead of one for the host system. CMake has support for supplying definitions for these in [[https://cmake.org/cmake/help/v3.5/manual/cmake-toolchains.7.html][Toolchain]] files. This is what I have so far
+
+#+INCLUDE: "~/src/toolchain/pi.cmake" src cmake
+
+That, in addition to setting the compiler to use, forces a few CMake options that are otherwise problems. The first is setting the static link flag for libstdc++. The second is overriding the search for pthreads, because trying to run programs built with a cross compiler doesn't work very well. This lies and forces the option.
+
+Used like so
+#+BEGIN_SRC shell
+cmake  -D CMAKE_TOOLCHAIN_FILE=~/src/toolchain/pi.cmake -DCMAKE_BUILD_TYPE=Release ..
+
+#+END_SRC
+
+A toolchain file for clang is a little more complicated, because it doesn't really understand the gcc multilib layout, so it needs to be told where all the include and lib directories are for the target system, for both the C and C++ compiler.
+
+#+INCLUDE: "~/src/toolchain/pi-clang.cmake" src cmake
