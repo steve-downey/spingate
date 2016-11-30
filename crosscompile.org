@@ -1,3 +1,5 @@
+#+BLOG: sdowney
+#+POSTID: 172
 #+OPTIONS: ':nil *:t -:t ::t <:t H:3 \n:nil ^:nil arch:headline author:t
 #+OPTIONS: broken-links:nil c:nil creator:nil d:(not "LOGBOOK") date:t e:t
 #+OPTIONS: email:nil f:t inline:t num:t p:nil pri:nil prop:nil stat:t tags:t
@@ -30,12 +32,10 @@
 
 In order to test out some of these multi-threaded tool properly, I really need to run them on a less strict platform than x86_64. X86_64 provides a lot of guarantees about sequential consistency and atomicity that hides problems that will happen on architectures that are not as strong, like power, sparc, and arm. Fortunately, one of the toys I have is a recent Raspberry Pi 3, which is based on a recent arm chip. Unfortunately, Raspbian, the normal linux distro for the Raspberry Pi is also based on a fairly old debian distro, with a fairly old compiler. Linaro is back porting their arm code genaration fixes to the old releases, but I'm more interested in the recent C++ language features. So I could attempt to compile GCC 6 on the RPi, or I can cross compile from my normal machine. I decided to cross compile, since if that worked, it would be considerably easier. It turnd out to be pretty straightfoward.
 
-#+BEGIN_SRC shell
+#+BEGIN_SRC shell :exports code
 sudo apt-get install g++-6-arm-linux-gnueabihf
 
 #+END_SRC
-
-#+RESULTS:
 
 This is mostly because I'm already doing software development on the box, so I didn't need any of the other parts of the compiler ecosystem, just the right c++ toolchain. The hardest part is determining the right one. There are a few flavors for arm development. The RPi is the gnu extended abi, with hardware float. The Ubuntu repositories only supply linux variants, which is sensible. Since that top level package ends up installing not just the compilers, but a libstdc++ and libc for arm-linux-gnueabihf, which need to know much more about the OS in order to interface with it.
 
@@ -45,11 +45,9 @@ This does lead to one snag, though. The versions of the libraries are not the on
 
 When cross compiling, a sysroot is a system that looks just like the root file system of the target platform. It will have /lib, /usr/lib, etc, with the versions of the libraries that you want. You can either use a disk image, mounted somewhere convienent, or you can just mount the target computer's root filesystem somewhere convienent. If you do that, you'll have access to all of the libraries available, not just the minimal set typically available on a prepackaged sysroot. So that's what I did.
 
-#+BEGIN_SRC shell
+#+BEGIN_SRC shell :exports code
 sshfs sdowney@cobweb.local:/ /home/sdowney/mnt/rpi/ -o transform_symlinks -o allow_other
 #+END_SRC
-
-#+RESULTS:
 
 Cobweb is my Raspberry Pi box, and zeroconf makes the current ip address available as cobweb.local. I'm mounting that into ~/mnt/rpi, transforming symlinks so that they actually work, and allowing others to access the mounted fs.
 
@@ -58,6 +56,9 @@ With that I can specify the sysroot, and have the compiler look there for librar
 #+BEGIN_SRC shell
 arm-linux-gnueabihf-g++-6 -v --sysroot ~/mnt/rpi/ -o hello hw.cpp
 #+END_SRC
+
+That spits out all of what the compiler driver invokes, and as a byproduct, a bunch of what is needed to set up cross compiling with other compilers, like clang.
+The key things to look for are the include directories called out by "#include <...> search starts here", and the LIBRARY_PATH variable that helps define what the linker does. I'll be pulling those out for the clang cross compile cmake toolchain file.
 
 #+BEGIN_EXAMPLE
 Using built-in specs.
@@ -129,3 +130,7 @@ cmake  -D CMAKE_TOOLCHAIN_FILE=~/src/toolchain/pi.cmake -DCMAKE_BUILD_TYPE=Relea
 A toolchain file for clang is a little more complicated, because it doesn't really understand the gcc multilib layout, so it needs to be told where all the include and lib directories are for the target system, for both the C and C++ compiler.
 
 #+INCLUDE: "~/src/toolchain/pi-clang.cmake" src cmake
+
+* Sources
+
+Toolchain files are on [[https://github.com/steve-downey/toolchain][Github]] next to the [[https://github.com/steve-downey/spingate][spingate]] sources, that now includes the org file that is the source for this entry, [[https://github.com/steve-downey/spingate/blob/master/crosscompile.org][crosscompile.org]].
