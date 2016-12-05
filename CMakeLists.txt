@@ -10,14 +10,14 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(CMAKE_COMPILER_IS_GNUCXX)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1z -ftemplate-backtrace-limit=0")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -march=native")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
   set(CMAKE_CXX_FLAGS_DEBUG "-O0 -fno-inline -g3")
   set(CMAKE_CXX_FLAGS_RELEASE "-Ofast -g0 -DNDEBUG")
 endif()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1z -ftemplate-backtrace-limit=0")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -march=native")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
   set(LLVM_ROOT "$ENV{LLVM_ROOT}" CACHE PATH "Path to LLVM installation")
   if(LLVM_ROOT)
     message(STATUS "LLVM Root: ${LLVM_ROOT}")
@@ -29,6 +29,10 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   endif()
   set(CMAKE_CXX_FLAGS_DEBUG "-O0 -fno-inline -g3 -fstack-protector-all")
   set(CMAKE_CXX_FLAGS_RELEASE "-Ofast -g0 -DNDEBUG")
+endif()
+
+if(NOT CMAKE_CROSSCOMPILING)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
 endif()
 
 
