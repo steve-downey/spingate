@@ -94,7 +94,6 @@ void print(std::ostream& os, std::tuple<Args...> const& tuple) {
 }
 
 template <class State> class Sample {
-    std::function<void(void)> funcs;
     void add(size_t, std::function<void(void)> f){
         batch_.add(f);
     }
