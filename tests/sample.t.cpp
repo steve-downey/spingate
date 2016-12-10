@@ -4,23 +4,20 @@
 
 #include <tuple>
 #include <functional>
+#include <new>
 
 using ::testing::Test;
 
 namespace testing {
 
 class TestState {
-    int x_;
-    int y_;
+    alignas(64) int x_;
+    alignas(64) int y_;
 
   public:
     typedef std::tuple<int, int, int, int> Result;
     TestState() : x_(0), y_(0) {}
     void writer1() {
-        y_ = 1;
-        x_ = 1;
-    }
-    void writer2() {
         y_ = 1;
         x_ = 1;
     }
@@ -37,9 +34,6 @@ class TestState {
         return std::make_tuple(
             [this]() {
                 writer1();
-            },
-            [this]() {
-                writer2();
             },
             [this](Result& result) {
                 reader1(result);
