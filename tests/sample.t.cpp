@@ -44,6 +44,33 @@ class TestState {
     }
 };
 
+class SB {
+    alignas(64) std::atomic<int> x_;
+    alignas(64) std::atomic<int> y_;
+
+  public:
+    typedef std::tuple<int, int> Result;
+    SB() : x_(0), y_(0) {}
+    void t1(Result& read) {
+        std::get<0>(read) = x_.load(std::memory_order_relaxed);
+        y_.store(1, std::memory_order_relaxed);
+    }
+    void t2(Result& read) {
+        std::get<1>(read) = y_.load(std::memory_order_relaxed);
+        x_.store(1, std::memory_order_relaxed);
+    }
+
+    auto actions() {
+        return std::make_tuple(
+            [this](Result& result) {
+                t1(result);
+            },
+            [this](Result& result) {
+                t2(result);
+            });
+    }
+};
+
 template <typename Func, typename Tuple, std::size_t... I>
 void tuple_for_each_impl(Tuple const& tuple,
                          Func&&       f,
@@ -107,7 +134,7 @@ TEST(SampleTest, sampleTest1)
 {
     std::map<TestState::Result, int> resultMap;
 
-    for (int i = 0; i < 10000; ++i) {
+    for (int i = 0; i < 1000000; ++i) {
         Sample<TestState> sample;
         sample.run();
         resultMap[sample.result_]++;
@@ -120,6 +147,24 @@ TEST(SampleTest, sampleTest1)
         std::cout << ") : " << result.second << "\n";
     }
 
+}
+
+TEST(SampleTest, sampleTest2)
+{
+    std::map<SB::Result, int> resultMap;
+
+    for (int i = 0; i < 10000000; ++i) {
+        Sample<SB> sample;
+        sample.run();
+        resultMap[sample.result_]++;
+    }
+
+    for(auto result : resultMap)
+    {
+        std::cout << '(' ;
+        print(std::cout, result.first);
+        std::cout << ") : " << result.second << "\n";
+    }
 }
 
 }
