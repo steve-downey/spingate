@@ -48,7 +48,7 @@ template <typename Func, typename Tuple, std::size_t... I>
 void tuple_for_each_impl(Tuple const& tuple,
                          Func&&       f,
                          std::index_sequence<I...>) {
-    int swallow[] = {0, (std::forward<Func>(f)(I, std::get<I>(tuple)))...};
+    auto swallow = {0, (std::forward<Func>(f)(I, std::get<I>(tuple)))...};
     (void)swallow;
 }
 
@@ -67,12 +67,22 @@ void print(std::ostream& os, std::tuple<Args...> const& tuple) {
 }
 
 template <class State> class Sample {
-    void add(std::function<void(void)> f){
+    std::function<void(void)> funcs;
+    void add(size_t, std::function<void(void)> f){
         batch_.add(f);
     }
 
-    void add(std::function<void(typename State::Result&)> f){
+    void add(size_t, std::function<void(typename State::Result&)> f){
         batch_.add(f, std::ref(result_));
+    }
+
+    template <typename... Args>
+    void add(std::tuple<Args...> const& tuple) {
+        auto adder = [this](auto i, auto el) {
+            this->add(i, el);
+          return 0;
+        };
+        return tuple_for_each(tuple, adder);
     }
 
   public:
@@ -87,10 +97,7 @@ template <class State> class Sample {
 
     void run() {
         auto const& actions = state_.actions();
-        add(std::get<0>(actions));
-        add(std::get<1>(actions));
-        add(std::get<2>(actions));
-        add(std::get<3>(actions));
+        add(actions);
         batch_.run();
     }
 };
