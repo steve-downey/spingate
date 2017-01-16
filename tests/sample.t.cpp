@@ -77,7 +77,7 @@ TEST(SampleTest, sampleTest1)
 {
     std::map<TestState::Result, int> resultMap;
 
-    for (int i = 0; i < 1000000; ++i) {
+    for (int i = 0; i < 2000000; ++i) {
         Sample<TestState> sample;
         sample.run();
         resultMap[sample.result_]++;
@@ -96,7 +96,7 @@ TEST(SampleTest, sampleTest2)
 {
     std::map<SB::Result, int> resultMap;
 
-    for (int i = 0; i < 10000000; ++i) {
+    for (int i = 0; i < 2000000; ++i) {
         Sample<SB> sample;
         sample.run();
         resultMap[sample.result_]++;
@@ -108,6 +108,69 @@ TEST(SampleTest, sampleTest2)
         tupleutil::print(std::cout, result.first);
         std::cout << ") : " << result.second << "\n";
     }
+}
+
+TEST(SampleTest, sampleTest1a)
+{
+    std::map<TestState::Result, int> resultMap;
+
+    for (int i = 0; i < 2000000; ++i) {
+        Sample<TestState> sample;
+        sample.run(tupleutil::tuple_getters(sample.state_.actions()));
+        resultMap[sample.result_]++;
+    }
+
+    for(auto result : resultMap)
+    {
+        std::cout << '(' ;
+        tupleutil::print(std::cout, result.first);
+        std::cout << ") : " << result.second << "\n";
+    }
+
+}
+
+TEST(SampleTest, sampleTest1b)
+{
+    std::map<TestState::Result, int> resultMap;
+
+    Sample<TestState> s;
+    auto getters = tupleutil::tuple_getters(s.state_.actions());
+    for (int i = 0; i < 2000000; ++i) {
+        Sample<TestState> sample;
+        sample.run(getters);
+        resultMap[sample.result_]++;
+        std::next_permutation(getters.begin(), getters.end());
+    }
+
+    for(auto result : resultMap)
+    {
+        std::cout << '(' ;
+        tupleutil::print(std::cout, result.first);
+        std::cout << ") : " << result.second << "\n";
+    }
+
+}
+
+TEST(SampleTest, sampleTest2b)
+{
+    std::map<SB::Result, int> resultMap;
+
+    Sample<SB> s;
+    auto getters = tupleutil::tuple_getters(s.state_.actions());
+    for (int i = 0; i < 2000000; ++i) {
+        Sample<SB> sample;
+        sample.run(getters);
+        resultMap[sample.result_]++;
+        std::next_permutation(getters.begin(), getters.end());
+    }
+
+    for(auto result : resultMap)
+    {
+        std::cout << '(' ;
+        tupleutil::print(std::cout, result.first);
+        std::cout << ") : " << result.second << "\n";
+    }
+
 }
 
 }
