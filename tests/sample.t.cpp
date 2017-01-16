@@ -5,6 +5,7 @@
 #include <tuple>
 #include <functional>
 #include <new>
+#include "tupleutil.h"
 
 using ::testing::Test;
 
@@ -71,63 +72,6 @@ class SB {
     }
 };
 
-template <typename Func, typename Tuple, std::size_t... I>
-void tuple_for_each_impl(Tuple const& tuple,
-                         Func&&       f,
-                         std::index_sequence<I...>) {
-    auto swallow = {0, (std::forward<Func>(f)(I, std::get<I>(tuple)))...};
-    (void)swallow;
-}
-
-template <typename Func, typename... Args>
-void tuple_for_each(std::tuple<Args...> const& tuple, Func&& f) {
-    tuple_for_each_impl(tuple, f, std::index_sequence_for<Args...>{});
-}
-
-template <typename... Args>
-void print(std::ostream& os, std::tuple<Args...> const& tuple) {
-    auto printer = [&os](auto i, auto el) {
-        os << (i == 0 ? "" : ", ") << el;
-        return 0;
-    };
-    return tuple_for_each(tuple, printer);
-}
-
-template <class State> class Sample {
-    void add(size_t, std::function<void(void)> f){
-        batch_.add(f);
-    }
-
-    void add(size_t, std::function<void(typename State::Result&)> f){
-        batch_.add(f, std::ref(result_));
-    }
-
-    template <typename... Args>
-    void add(std::tuple<Args...> const& tuple) {
-        auto adder = [this](auto i, auto el) {
-            this->add(i, el);
-          return 0;
-        };
-        return tuple_for_each(tuple, adder);
-    }
-
-  public:
-    Batch batch_;
-    State state_;
-    typename State::Result result_;
-
-    Sample() : batch_(),
-               state_(),
-               result_()
-    {}
-
-    void run() {
-        auto const& actions = state_.actions();
-        add(actions);
-        batch_.run();
-    }
-};
-
 
 TEST(SampleTest, sampleTest1)
 {
@@ -142,7 +86,7 @@ TEST(SampleTest, sampleTest1)
     for(auto result : resultMap)
     {
         std::cout << '(' ;
-        print(std::cout, result.first);
+        tupleutil::print(std::cout, result.first);
         std::cout << ") : " << result.second << "\n";
     }
 
@@ -161,7 +105,7 @@ TEST(SampleTest, sampleTest2)
     for(auto result : resultMap)
     {
         std::cout << '(' ;
-        print(std::cout, result.first);
+        tupleutil::print(std::cout, result.first);
         std::cout << ") : " << result.second << "\n";
     }
 }

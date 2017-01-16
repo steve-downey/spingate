@@ -7,4 +7,6 @@ set(test_sources
 )
 add_executable(spintest ${test_sources})
 target_link_libraries(spintest gtest_main spingate)
+target_link_libraries(spintest tupleutil)
+enable_testing()
 add_test(NAME SpinTest COMMAND spintest)

@@ -40,9 +40,12 @@ endif()
 if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/googletest/CMakeLists.txt")
   add_subdirectory(googletest EXCLUDE_FROM_ALL)
   add_subdirectory(tests)
+  enable_testing()
 else()
   message("GTEST Not Found at ${CMAKE_CURRENT_SOURCE_DIR}/googletest/CMakeLists.txt")
 endif()
+
+add_subdirectory(tupleutil)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
