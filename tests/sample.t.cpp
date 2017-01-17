@@ -2,10 +2,14 @@
 
 #include "gtest/gtest.h"
 
+#include "litmus_tests.h"
+
+#include "tupleutil.h"
+
+
 #include <tuple>
 #include <functional>
 #include <new>
-#include "tupleutil.h"
 
 using ::testing::Test;
 
@@ -45,39 +49,13 @@ class TestState {
     }
 };
 
-class SB {
-    alignas(64) std::atomic<int> x_;
-    alignas(64) std::atomic<int> y_;
-
-  public:
-    typedef std::tuple<int, int> Result;
-    SB() : x_(0), y_(0) {}
-    void t1(Result& read) {
-        std::get<0>(read) = x_.load(std::memory_order_relaxed);
-        y_.store(1, std::memory_order_relaxed);
-    }
-    void t2(Result& read) {
-        std::get<1>(read) = y_.load(std::memory_order_relaxed);
-        x_.store(1, std::memory_order_relaxed);
-    }
-
-    auto actions() {
-        return std::make_tuple(
-            [this](Result& result) {
-                t1(result);
-            },
-            [this](Result& result) {
-                t2(result);
-            });
-    }
-};
 
 
 TEST(SampleTest, sampleTest1)
 {
     std::map<TestState::Result, int> resultMap;
 
-    for (int i = 0; i < 2000000; ++i) {
+    for (int i = 0; i < 20000; ++i) {
         Sample<TestState> sample;
         sample.run();
         resultMap[sample.result_]++;
@@ -94,9 +72,11 @@ TEST(SampleTest, sampleTest1)
 
 TEST(SampleTest, sampleTest2)
 {
+    using litmus::SB;
+
     std::map<SB::Result, int> resultMap;
 
-    for (int i = 0; i < 2000000; ++i) {
+    for (int i = 0; i < 20000; ++i) {
         Sample<SB> sample;
         sample.run();
         resultMap[sample.result_]++;
@@ -114,7 +94,7 @@ TEST(SampleTest, sampleTest1a)
 {
     std::map<TestState::Result, int> resultMap;
 
-    for (int i = 0; i < 2000000; ++i) {
+    for (int i = 0; i < 20000; ++i) {
         Sample<TestState> sample;
         sample.run(tupleutil::tuple_getters(sample.state_.actions()));
         resultMap[sample.result_]++;
@@ -135,7 +115,7 @@ TEST(SampleTest, sampleTest1b)
 
     Sample<TestState> s;
     auto getters = tupleutil::tuple_getters(s.state_.actions());
-    for (int i = 0; i < 2000000; ++i) {
+    for (int i = 0; i < 20000; ++i) {
         Sample<TestState> sample;
         sample.run(getters);
         resultMap[sample.result_]++;
@@ -153,11 +133,12 @@ TEST(SampleTest, sampleTest1b)
 
 TEST(SampleTest, sampleTest2b)
 {
+    using litmus::SB;
     std::map<SB::Result, int> resultMap;
 
     Sample<SB> s;
     auto getters = tupleutil::tuple_getters(s.state_.actions());
-    for (int i = 0; i < 2000000; ++i) {
+    for (int i = 0; i < 20000; ++i) {
         Sample<SB> sample;
         sample.run(getters);
         resultMap[sample.result_]++;

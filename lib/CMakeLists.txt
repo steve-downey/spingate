@@ -2,7 +2,8 @@ set(spingate_sources
   spingate.cpp
   cvgate.cpp
   batch.cpp
-  sample.cpp)
+  sample.cpp
+  experiment.cpp)
 
 add_library(spingate STATIC ${spingate_sources})
 

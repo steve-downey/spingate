@@ -4,6 +4,7 @@ set(test_sources
   spingate.t.cpp
   batch.t.cpp
   sample.t.cpp
+  experiment.t.cpp
 )
 add_executable(spintest ${test_sources})
 target_link_libraries(spintest gtest_main spingate)
