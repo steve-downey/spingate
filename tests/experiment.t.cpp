@@ -12,8 +12,8 @@ namespace testing {
 
 TEST(ExperimentTest, SBTest1)
 {
-    using litmus::SB;
-    Experiment<SB> exp;
+    using Test = litmus::SB;
+    Experiment<Test> exp;
     exp.run(2000000);
 
     for(auto result : exp.resultMap_)
@@ -27,8 +27,8 @@ TEST(ExperimentTest, SBTest1)
 
 TEST(ExperimentTest, MPTest1)
 {
-    using litmus::MP;
-    Experiment<MP> exp;
+    using Test = litmus::MP;
+    Experiment<Test> exp;
     exp.run(2000000);
 
     for(auto result : exp.resultMap_)
@@ -42,8 +42,23 @@ TEST(ExperimentTest, MPTest1)
 
 TEST(ExperimentTest, IRIWTest1)
 {
-    using litmus::IRIW;
-    Experiment<IRIW> exp;
+    using Test = litmus::IRIW;
+    Experiment<Test> exp;
+    exp.run(2000000);
+
+    for(auto result : exp.resultMap_)
+    {
+        std::cout << '(' ;
+        tupleutil::print(std::cout, result.first);
+        std::cout << ") : " << result.second << "\n";
+    }
+
+}
+
+TEST(ExperimentTest, LBTest1)
+{
+    using Test = litmus::LB;
+    Experiment<Test> exp;
     exp.run(2000000);
 
     for(auto result : exp.resultMap_)
