@@ -6,26 +6,13 @@
 #include <tupleutil.h>
 
 template <class State> class Sample {
-    template <typename F> void add(F f) {
-        if constexpr(std::is_callable_v<F(void), void>) {
-            batch_.add(f);
-        }
-        else {
-            batch_.add(f, std::ref(result_));
-        }
-    }
-
     template <typename T, typename V, size_t I>
     void add(T const& tuple, std::array<V, I> const& array) {
-        // auto adder = [this](auto i, auto el) {
-        //     this->add(i, el);
-        //   return 0;
-        // };
         auto adder = [this](auto&& f) {
             using F = std::remove_cv_t<std::remove_reference_t<decltype(f)>>;
             if constexpr(std::is_callable_v<F(void), void>) {
                     batch_.add(f);
-                }
+            }
             else {
                 batch_.add(f, std::ref(result_));
             }
