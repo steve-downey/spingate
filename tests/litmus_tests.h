@@ -2,6 +2,8 @@
 #ifndef INCLUDED_LITMUS_TESTS
 #define INCLUDED_LITMUS_TESTS
 
+#include <atomic>
+#include <tuple>
 
 namespace litmus {
 
@@ -60,6 +62,34 @@ class SB { // Store Buffering
 };
 
 
+class LB { // Load Buffering
+    alignas(64) std::atomic<int> x_;
+    alignas(64) std::atomic<int> y_;
+
+  public:
+    typedef std::tuple<int, int> Result;
+    LB() : x_(0), y_(0) {}
+    void t1(Result& read) {
+        y_.store(1, std::memory_order_relaxed);
+        std::get<0>(read) = x_.load(std::memory_order_relaxed);
+    }
+    void t2(Result& read) {
+        x_.store(1, std::memory_order_relaxed);
+        std::get<1>(read) = y_.load(std::memory_order_relaxed);
+    }
+
+    auto actions() {
+        return std::make_tuple(
+            [this](Result& result) {
+                t1(result);
+            },
+            [this](Result& result) {
+                t2(result);
+            });
+    }
+};
+
+
 class IRIW { // Independent Reads of Independent Writes
     alignas(64) std::atomic<int> x_;
     alignas(64) std::atomic<int> y_;
@@ -99,33 +129,6 @@ class IRIW { // Independent Reads of Independent Writes
             },
             [this](Result& read) {
                 t4(read);
-            });
-    }
-};
-
-class LB { // Load Buffering
-    alignas(64) std::atomic<int> x_;
-    alignas(64) std::atomic<int> y_;
-
-  public:
-    typedef std::tuple<int, int> Result;
-    LB() : x_(0), y_(0) {}
-    void t1(Result& read) {
-        y_.store(1, std::memory_order_relaxed);
-        std::get<0>(read) = x_.load(std::memory_order_relaxed);
-    }
-    void t2(Result& read) {
-        x_.store(1, std::memory_order_relaxed);
-        std::get<1>(read) = y_.load(std::memory_order_relaxed);
-    }
-
-    auto actions() {
-        return std::make_tuple(
-            [this](Result& result) {
-                t1(result);
-            },
-            [this](Result& result) {
-                t2(result);
             });
     }
 };
