@@ -16,7 +16,7 @@ int main() {
     times.resize(threadCount);
 
     for (size_t n = 0; n < threadCount; ++n) {
-        workers.emplace_back([&gate, t1, &times, n] {
+        workers.emplace_back([&gate, &times, n] {
             gate.wait();
             time_point t2 = std::chrono::high_resolution_clock::now();
             times[n]      = t2;
