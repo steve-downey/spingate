@@ -5,19 +5,19 @@
 #include <batch.h>
 #include <tupleutil.h>
 
-template <class State> class Sample {
-    template <typename T, typename V, size_t I>
-    void add(T const& tuple, std::array<V, I> const& array) {
+template <class Test> class Sample {
+    template <typename Tuple, typename Variant, size_t I>
+    void add(Tuple const& tuple, std::array<Variant, I> const& array) {
         auto adder = [this](auto&& f) {
             using F = std::remove_cv_t<std::remove_reference_t<decltype(f)>>;
             if constexpr(std::is_callable_v<F(void), void>) {
-                    batch_.add(f);
+                batch_.add(f);
             }
             else {
                 batch_.add(f, std::ref(result_));
             }
         };
-        for (V const& v : array) {
+        for (auto&& v : array) {
             std::visit(adder, v(tuple));
         }
         return;
@@ -25,16 +25,16 @@ template <class State> class Sample {
 
   public:
     Batch batch_;
-    State state_;
-    typename State::Result result_;
+    Test test_;
+    typename Test::Result result_;
 
     Sample() : batch_(),
-               state_(),
+               test_(),
                result_()
     {}
 
     void run() {
-        auto const& actions = state_.actions();
+        auto const& actions = test_.actions();
         auto const& getters = tupleutil::tuple_getters(actions);
         add(actions, getters);
         batch_.run();
@@ -42,7 +42,7 @@ template <class State> class Sample {
 
     template <typename V, size_t I>
     void run(std::array<V, I> const& getters) {
-        auto const& actions = state_.actions();
+        auto const& actions = test_.actions();
         add(actions, getters);
         batch_.run();
     }
