@@ -30,8 +30,8 @@ void Batch::add(Function&& f, Args&&... args) {
 
 inline
 void Batch::run() {
-    std::this_thread::yield();
     gate_.open();
+    std::this_thread::yield();
     for (auto& thr : workers_) {
         thr.join();
     }
