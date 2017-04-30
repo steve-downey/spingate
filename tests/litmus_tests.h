@@ -13,15 +13,9 @@ class MP { // Message Passing
 
   public:
     typedef std::tuple<int> Result;
-    MP() : x_(0), y_(0) {}
-    void t1() {
-        x_.store(1, std::memory_order_relaxed);
-        y_.store(1, std::memory_order_relaxed);
-    }
-    void t2(Result& read) {
-        while (!y_.load(std::memory_order_relaxed)){}
-        std::get<0>(read) = x_.load(std::memory_order_relaxed);
-    }
+    MP();
+    void t1();
+    void t2(Result& read);
 
     auto actions() {
         return std::make_tuple(
@@ -40,15 +34,9 @@ class SB { // Store Buffering
 
   public:
     typedef std::tuple<int, int> Result;
-    SB() : x_(0), y_(0) {}
-    void t1(Result& read) {
-        std::get<0>(read) = x_.load(std::memory_order_relaxed);
-        y_.store(1, std::memory_order_relaxed);
-    }
-    void t2(Result& read) {
-        std::get<1>(read) = y_.load(std::memory_order_relaxed);
-        x_.store(1, std::memory_order_relaxed);
-    }
+    SB();
+    void t1(Result& read);
+    void t2(Result& read);
 
     auto actions() {
         return std::make_tuple(
@@ -68,15 +56,9 @@ class LB { // Load Buffering
 
   public:
     typedef std::tuple<int, int> Result;
-    LB() : x_(0), y_(0) {}
-    void t1(Result& read) {
-        y_.store(1, std::memory_order_relaxed);
-        std::get<0>(read) = x_.load(std::memory_order_relaxed);
-    }
-    void t2(Result& read) {
-        x_.store(1, std::memory_order_relaxed);
-        std::get<1>(read) = y_.load(std::memory_order_relaxed);
-    }
+    LB();
+    void t1(Result& read);
+    void t2(Result& read);
 
     auto actions() {
         return std::make_tuple(
@@ -97,24 +79,15 @@ class IRIW { // Independent Reads of Independent Writes
   public:
     typedef std::tuple<int, int, int, int> Result;
 
-    IRIW() : x_(0), y_(0) {}
-    void t1() {
-        x_.store(1, std::memory_order_relaxed);
-    }
+    IRIW();
 
-    void t2() {
-        y_.store(1, std::memory_order_relaxed);
-    }
+    void t1();
 
-    void t3(Result& read) {
-        std::get<0>(read) = x_.load(std::memory_order_relaxed);
-        std::get<1>(read) = y_.load(std::memory_order_relaxed);
-    }
+    void t2();
 
-    void t4(Result& read) {
-        std::get<2>(read) = y_.load(std::memory_order_relaxed);
-        std::get<3>(read) = x_.load(std::memory_order_relaxed);
-    }
+    void t3(Result& read);
+
+    void t4(Result& read);
 
     auto actions() {
         return std::make_tuple(
