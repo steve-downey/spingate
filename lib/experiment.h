@@ -7,8 +7,7 @@
 
 #include <map>
 
-template <class Test>
-class Experiment {
+template <class Test> class Experiment {
   public:
     std::map<typename Test::Result, int> resultMap_;
 

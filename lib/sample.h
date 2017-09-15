@@ -10,10 +10,9 @@ template <class Test> class Sample {
     void add(Tuple const& tuple, std::array<Variant, I> const& getters) {
         auto adder = [this](auto&& f) {
             using F = std::remove_cv_t<std::remove_reference_t<decltype(f)>>;
-            if constexpr(std::is_callable_v<F(void), void>) {
+            if constexpr (std::is_callable_v<F(void), void>) {
                 batch_.add(f);
-            }
-            else {
+            } else {
                 batch_.add(f, std::ref(result_));
             }
         };
@@ -24,14 +23,11 @@ template <class Test> class Sample {
     }
 
   public:
-    Batch batch_;
-    Test test_;
+    Batch                 batch_;
+    Test                  test_;
     typename Test::Result result_;
 
-    Sample() : batch_(),
-               test_(),
-               result_()
-    {}
+    Sample() : batch_(), test_(), result_() {}
 
     void run() {
         auto const& actions = test_.actions();
@@ -40,18 +36,15 @@ template <class Test> class Sample {
         batch_.run();
     }
 
-    template <typename V, size_t I>
-    void run(std::array<V, I> const& getters) {
+    template <typename V, size_t I> void run(std::array<V, I> const& getters) {
         auto const& actions = test_.actions();
         add(actions, getters);
         batch_.run();
     }
 };
 
-
 // ============================================================================
 //              INLINE FUNCTION AND FUNCTION TEMPLATE DEFINITIONS
 // ============================================================================
-
 
 #endif

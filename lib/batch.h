@@ -28,8 +28,7 @@ void Batch::add(Function&& f, Args&&... args) {
     });
 }
 
-inline
-void Batch::run() {
+inline void Batch::run() {
     gate_.open();
     std::this_thread::yield();
     for (auto& thr : workers_) {
