@@ -15,13 +15,13 @@ using ::testing::Test;
 
 namespace testing {
 
-class TestTest {
+class TestReadOrder {
     alignas(64) int x_;
     alignas(64) int y_;
 
   public:
     typedef std::tuple<int, int, int, int> Result;
-    TestTest() : x_(0), y_(0) {}
+    TestReadOrder() : x_(0), y_(0) {}
     void writer1() {
         y_ = 1;
         x_ = 1;
@@ -51,12 +51,12 @@ class TestTest {
 
 
 
-TEST(SampleTest, sampleTest1)
+TEST(SampleTest, sampleTestRunSample)
 {
-    std::map<TestTest::Result, int> resultMap;
+    std::map<TestReadOrder::Result, int> resultMap;
 
     for (int i = 0; i < 20000; ++i) {
-        Sample<TestTest> sample;
+        Sample<TestReadOrder> sample;
         sample.run();
         resultMap[sample.result_]++;
     }
@@ -70,7 +70,7 @@ TEST(SampleTest, sampleTest1)
 
 }
 
-TEST(SampleTest, sampleTest2)
+TEST(SampleTest, sampleTestStoreBuffer)
 {
     using litmus::SB;
 
@@ -90,12 +90,12 @@ TEST(SampleTest, sampleTest2)
     }
 }
 
-TEST(SampleTest, sampleTest1a)
+TEST(SampleTest, sampleTestGetters)
 {
-    std::map<TestTest::Result, int> resultMap;
+    std::map<TestReadOrder::Result, int> resultMap;
 
     for (int i = 0; i < 20000; ++i) {
-        Sample<TestTest> sample;
+        Sample<TestReadOrder> sample;
         sample.run(tupleutil::tuple_getters(sample.test_.actions()));
         resultMap[sample.result_]++;
     }
@@ -109,14 +109,14 @@ TEST(SampleTest, sampleTest1a)
 
 }
 
-TEST(SampleTest, sampleTest1b)
+TEST(SampleTest, sampleTestPermuteGetters)
 {
-    std::map<TestTest::Result, int> resultMap;
+    std::map<TestReadOrder::Result, int> resultMap;
 
-    Sample<TestTest> s;
+    Sample<TestReadOrder> s;
     auto getters = tupleutil::tuple_getters(s.test_.actions());
     for (int i = 0; i < 20000; ++i) {
-        Sample<TestTest> sample;
+        Sample<TestReadOrder> sample;
         sample.run(getters);
         resultMap[sample.result_]++;
         std::next_permutation(getters.begin(), getters.end());

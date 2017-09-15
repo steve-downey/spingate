@@ -6,6 +6,61 @@
 #include <tuple>
 
 namespace litmus {
+class Breath1 {
+    alignas(64) std::atomic<int> x_;
+  public:
+    typedef std::tuple<int> Result;
+    Breath1();
+    void t1(Result& read);
+
+    auto actions() {
+        return std::make_tuple(
+            [this](Result& result) {
+                t1(result);
+            });
+    }
+};
+
+class Breath2 {
+    alignas(64) std::atomic<int> x_;
+  public:
+    typedef std::tuple<int> Result;
+    Breath2();
+    void t1();
+    void t2(Result& read);
+
+    auto actions() {
+        return std::make_tuple(
+            [this]() {
+                t1();
+            },
+            [this](Result& result) {
+                t2(result);
+            });
+    }
+
+};
+
+class MPa { // Message Passing
+    alignas(64) std::atomic<int> x_;
+    alignas(64) std::atomic<int> y_;
+
+  public:
+    typedef std::tuple<int,int> Result;
+    MPa();
+    void t1();
+    void t2(Result& read);
+
+    auto actions() {
+        return std::make_tuple(
+            [this]() {
+                t1();
+            },
+            [this](Result& result) {
+                t2(result);
+            });
+    }
+};
 
 class MP { // Message Passing
     alignas(64) std::atomic<int> x_;
