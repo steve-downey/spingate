@@ -1,0 +1,274 @@
+#+OPTIONS: ':nil *:t -:t ::t <:t H:3 \n:nil ^:t arch:headline author:t
+#+OPTIONS: broken-links:nil c:nil creator:nil d:(not "LOGBOOK") date:t e:t
+#+OPTIONS: email:nil f:t inline:t num:t p:nil pri:nil prop:nil stat:t tags:t
+#+OPTIONS: tasks:t tex:t timestamp:t title:t toc:t todo:t |:t
+#+TITLE: Litmus Tests for Multithreaded Behavior
+#+DATE: <2017-04-30 Sun>
+#+AUTHOR: Steve Downey
+#+EMAIL: sdowney@sdowney.org
+#+LANGUAGE: en
+#+SELECT_TAGS: export
+#+EXCLUDE_TAGS: noexport
+#+CREATOR: Emacs 25.2.1 (Org mode 9.0.5)
+#+OPTIONS: html-link-use-abs-url:nil html-postamble:auto html-preamble:t
+#+OPTIONS: html-scripts:t html-style:t html5-fancy:nil tex:t
+#+HTML_DOCTYPE: xhtml-strict
+#+HTML_CONTAINER: div
+#+SUBTITLE: Or How Processors Don't Do What You Think
+#+DESCRIPTION:
+#+KEYWORDS:
+#+HTML_LINK_HOME:
+#+HTML_LINK_UP:
+#+HTML_MATHJAX:
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="https://raw.githubusercontent.com/steve-downey/css/master/smd-zenburn.css" />
+#+HTML_HEAD_EXTRA:
+#+SUBTITLE:
+#+INFOJS_OPT:
+#+CREATOR: <a href="http://www.gnu.org/software/emacs/">Emacs</a> 25.2.1 (<a href="http://orgmode.org">Org</a> mode 9.0.5)
+#+LATEX_HEADER:
+#+STARTUP: showeverything
+
+
+Modern multicore processors are entirely weirder than almost anyone thinks possible. They are somewhat weirder than chip makers were willing to admit until fairly recently. They are sufficiently weird enough that almost all multi-threaded programs, and many lock-free algorithms, had bugs because the hardware just does not work the way anyone would reasonably expect. And, in addition, optimizing compilers did not actually know how to not break your code. [fn:1]
+
+I'm in the (slow) process of writing some test cases for multi-threaded code. I eventually want to have some confidence that some code is executed once, and only once, in an efficient manner. It's the 'efficient' part that worries me, because for efficient, it also has a tendency to be clever, and I'm learning that clever MT code is often subtly broken. [fn:2] So if smarter people than me make mistakes about MT code, I need tests to compensate. And ones that will cover occasional allowed but unexpected behavior. Which means the test framework should be able to detect them.
+
+Also, fortunately, the RPi is a computer that exhibits some odd behavior, as it is an ARM system. X86 has a much stronger model. However, even the x86 model is allowed to perform in odd ways.
+
+Starting in 2007, Intel has started publishing short snippets of assembly and documenting what are the allowed and disallowed results running them in parallel. [fn:3] These snippets have come to be called litmus tests, and are used to confirm the behavior of hardware, and confirm models of the hardware behavior. A particularly important model for C++ programmers is the x86 Total Store Order model [fn:4] which provides a way of mapping the C++11 memory model to X86 hardware. X86 hardware provides a strongly consistent memory model. Power and ARM provide fewer guarantees, and mapping the C++ memory model to these architectures is more challenging. [fn:5]
+
+* Message Passing
+The tests outlined in the Intel paper are short pieces of assembly to be exercised on different processors, with guarantees about behavior that will not happen. The first one essentially promises that message passing will work, and is now known as the MP test.
+| Processor 0        | Processor 1         |
+|--------------------+---------------------|
+| mov [ _x], 1 // M1 | mov r1, [ _y] // M3 |
+| mov [ _y], 1 // M2 | mov r2, [ _x] // M4 |
+Initially x = y = 0
+
+r1 = 1 and r2 = 0 is not allowed
+
+That says that we can't read the writes of x and y out of order, which ensures that if we're waiting to see the write to the flag y, we can be guaranteed to see the payload in x. If we change it slightly to wait for the write to _y to be visible, we can pass a message from one thread to anothher in _x. This is also known as Dekards Algorithm.
+
+ARM and Power do not provide that guarantee without additional synchronization instructions.
+
+In C++ that looks something like the following, using the test frameword I'm writing.
+#+BEGIN_SRC C++
+MP::MP() : x_(0), y_(0) {}
+void MP::t1() {
+    x_.store(1, std::memory_order_relaxed);
+    y_.store(1, std::memory_order_relaxed);
+}
+void MP::t2(Result& read) {
+    while (!y_.load(std::memory_order_relaxed)){}
+    std::get<0>(read) = x_.load(std::memory_order_relaxed);
+}
+
+#+END_SRC
+
+Here, x_ and y_ are atomic<int>s, and we're using the lowest possible atomic guarantee in C++, relaxed. Relaxed guarantees that the operation happens atomically. but there are no synchronization properties with anything else. This usally corresponds to the basic int type. Unless you're using a really insane processor that might let an int be partially written and observable. Like you might get the top half of the int, or the middle byte. The commercial processors that allowed this have pretty much died out.
+
+The test spins on seeing the load of y to be complete. It loads the value of x_ into a result tuple. The tuple is used as the key to a map which accumulates how many times each result has been seen.
+Running the above on my x86 laptop:
+#+BEGIN_EXAMPLE
+[ RUN      ] ExperimentTest.MPTest1
+(1) : 2000000
+
+#+END_EXAMPLE
+
+on my Raspberry Pi 3:
+#+BEGIN_EXAMPLE
+[ RUN      ] ExperimentTest.MPTest1
+(0) : 483
+(1) : 1999517
+
+#+END_EXAMPLE
+
+Using objdump to check the generated assembly
+#+BEGIN_EXAMPLE
+00000088 <litmus::MP::MP()>:
+  88:   mov     r2, #0
+  8c:   str     r2, [r0]
+  90:   str     r2, [r0, #64]   ; 0x40
+  94:   bx      lr
+
+00000098 <litmus::MP::t1()>:
+  98:   mov     r3, #1
+  9c:   str     r3, [r0]
+  a0:   str     r3, [r0, #64]   ; 0x40
+  a4:   bx      lr
+
+000000a8 <litmus::MP::t2(std::tuple<int>&)>:
+  a8:   ldr     r3, [r0, #64]   ; 0x40
+  ac:   cmp     r3, #0
+  b0:   beq     a8 <litmus::MP::t2(std::tuple<int>&)>
+  b4:   ldr     r3, [r0]
+  b8:   str     r3, [r1]
+  bc:   bx      lr
+#+END_EXAMPLE
+So, out of the 2,000,000 times that I ran the experiment, there were 483 times that reading x_ resulted in 0, even though y_ was 1. ARM has a weaker memory model than x86. This has some advantages in processor implementation. It has distinct disadvantages in how our brains work. X86 tries to preserve the model that there is shared memory that everyone sees and works with. That's not strictly true, even for X86, but ARM and Power don't even come close. On the other hand, it's also why it's easier to add more cores to Power and ARM chips and systems. I routinely work with Power systems with 512 physical cores.
+
+* Store Buffering
+Store buffering is the odd case that is allowed in the Intel memory model. When assigning locations in two threads, and then reading them on opposite threads, both threads are allowed to read the older state. The stores get buffered.
+From the Intel White Paper:
+| Processor 0         | Processor 1         |
+|---------------------+---------------------|
+| mov [ _x], 1  // M1 | mov [ _y], 1  // M3 |
+| mov r1, [ _y] // M2 | mov r2, [ _x] // M4 |
+
+Initially x = y = 0
+
+r1 = 0 and r2 ==0 is allowed
+
+Note, in particular, there is no interleaving of M1 - 4 that could result in r1 and r2 being 0. Not without interupting an instruction in the middle. But the instructions themselves are atomic, and indivisible. If they were actually operating on shared memory, this would not be possible. However, it does happen.
+#+BEGIN_SRC c++
+SB::SB() : x_(0), y_(0) {}
+void SB::t1(Result& read) {
+    y_.store(1, std::memory_order_relaxed);
+    std::get<0>(read) = x_.load(std::memory_order_relaxed);
+}
+void SB::t2(Result& read) {
+    x_.store(1, std::memory_order_relaxed);
+    std::get<1>(read) = y_.load(std::memory_order_relaxed);
+}
+
+#+END_SRC
+That generates the x86 code
+#+BEGIN_EXAMPLE
+00000000000000f0 <litmus::SB::t1(std::__1::tuple<int, int>&)>:
+  f0:	mov    DWORD PTR [rdi+0x40],0x1
+  f7:	mov    eax,DWORD PTR [rdi]
+  f9:	mov    DWORD PTR [rsi],eax
+  fb:	ret
+
+0000000000000100 <litmus::SB::t2(std::__1::tuple<int, int>&)>:
+ 100:	mov    DWORD PTR [rdi],0x1
+ 106:	mov    eax,DWORD PTR [rdi+0x40]
+ 109:	mov    DWORD PTR [rsi+0x4],eax
+ 10c:	ret
+
+#+END_EXAMPLE
+
+And on my x86 machine:
+#+BEGIN_EXAMPLE
+[ RUN      ] ExperimentTest.SBTest1
+(0, 0) : 559
+(0, 1) : 999858
+(1, 0) : 999576
+(1, 1) : 7
+
+#+END_EXAMPLE
+
+So 559 times neither core saw the other core's store.
+
+* Load Buffering
+
+Load Buffering is the dual of store buffering. Loads into registers might be delayed, or buffered, and actually performed after following instructions. It's not allowed in the Intel architecture.
+
+From the Intel White Paper
+| Processor 0         | Processor 1         |
+|---------------------+---------------------|
+| mov r1, [ _x] // M1 | mov r2, [ _y] // M3 |
+| mov [ _y], 1  // M2 | mov [ _x], 1  // M4 |
+Initially x = y = 0
+
+r1 = 1 and r2 = 1 is not allowed
+
+#+BEGIN_SRC C++
+LB::LB() : x_(0), y_(0) {}
+void LB::t1(Result& read) {
+    std::get<0>(read) = x_.load(std::memory_order_relaxed);
+    y_.store(1, std::memory_order_relaxed);
+}
+void LB::t2(Result& read) {
+    std::get<1>(read) = y_.load(std::memory_order_relaxed);
+    x_.store(1, std::memory_order_relaxed);
+}
+#+END_SRC
+
+This is the x86 asm code
+#+BEGIN_EXAMPLE
+00000000000000c0 <litmus::LB::t1(std::__1::tuple<int, int>&)>:
+  c0:	mov    eax,DWORD PTR [rdi]
+  c2:	mov    DWORD PTR [rsi],eax
+  c4:	mov    DWORD PTR [rdi+0x40],0x1
+  cb:	ret
+  cc:	nop    DWORD PTR [rax+0x0]
+
+00000000000000d0 <litmus::LB::t2(std::__1::tuple<int, int>&)>:
+  d0:	mov    eax,DWORD PTR [rdi+0x40]
+  d3:	mov    DWORD PTR [rsi+0x4],eax
+  d6:	mov    DWORD PTR [rdi],0x1
+  dc:	ret
+  dd:	nop    DWORD PTR [rax]
+
+#+END_EXAMPLE
+And the ARM code, at -O1
+#+BEGIN_EXAMPLE
+000000d0 <litmus::LB::t1(std::tuple<int, int>&)>:
+  d0:   ldr     r3, [r0]
+  d4:   str     r3, [r1, #4]
+  d8:   mov     r3, #1
+  dc:   str     r3, [r0, #64]   ; 0x40
+  e0:   bx      lr
+
+000000e4 <litmus::LB::t2(std::tuple<int, int>&)>:
+  e4:   ldr     r3, [r0, #64]   ; 0x40
+  e8:   str     r3, [r1]
+  ec:   mov     r3, #1
+  f0:   str     r3, [r0]
+  f4:   bx      lr
+
+#+END_EXAMPLE
+
+ARM generally allows it, but per [fn:5] it's very sensitive, and dependencies will make it not appear. In my tests, I did not observe an instance of a buffering, but it may be due to the first store the compiler introduces, in order to actually get the data into the tuple. That it's documented as possible is still exceedingly strange.
+
+* Independent Reads of Independent Writes
+
+IRIW is a generalization of store buffering, where two reader threads each read different apparent orderings of writes from two distinct writer threads.
+
+| T1    | T2    | T3     | T4     |
+|-------+-------+--------+--------|
+| X = 1 | Y = 1 | R1 = X | R3 = y |
+|       |       | R2 = Y | R4 = X |
+|       |       |        |        |
+Initially X=Y=0
+Allowed in ARM, not in x86 r1=1, r2=0, r3=1, r4=0 [fn:5] [fn:4]
+
+This is not observed in x86 processors, but is in ARM and POWER. X86 hardware has a consistent view of memory where other hardware can see memory writes in different orders on different threads.
+
+#+BEGIN_SRC C++
+IRIW::IRIW() : x_(0), y_(0) {}
+void IRIW::t1() {
+    x_.store(1, std::memory_order_relaxed);
+}
+
+void IRIW::t2() {
+    y_.store(1, std::memory_order_relaxed);
+}
+
+void IRIW::t3(Result& read) {
+    std::get<0>(read) = x_.load(std::memory_order_relaxed);
+    std::get<1>(read) = y_.load(std::memory_order_relaxed);
+}
+
+void IRIW::t4(Result& read) {
+    std::get<2>(read) = y_.load(std::memory_order_relaxed);
+    std::get<3>(read) = x_.load(std::memory_order_relaxed);
+}
+
+#+END_SRC
+
+
+#+BIBLIOGRAPHY: /home/sdowney/org/ref.bib plain option:-d limit:t
+
+* Footnotes
+
+[fn:5] [[https://www.cl.cam.ac.uk/~pes20/ppc-supplemental/test7.pdf][A Tutorial Introduction to the ARM and POWER Relaxed Memory Models]] cite:maranget2012tutorial
+
+[fn:4] [[https://www.cl.cam.ac.uk/~pes20/weakmemory/x86tso-paper.tphols.pdf][A Better x86 Memory Model: x86-TSO]] cite:owens2009better
+
+[fn:2] [[https://www.cs.umd.edu/~pugh/java/memoryModel/DoubleCheckedLocking.html][Double Checked Locking is Broken]] cite:bacon2000double
+
+[fn:3] [[http://www.cs.cmu.edu/~410-f10/doc/Intel_Reordering_318147.pdf][Intel White Paper August '07 ]] cite:IWPAug2007
+
+[fn:1] [[http://www.hpl.hp.com/techreports/2004/HPL-2004-209.pdf][Threads Cannot be Implemented as a Library]] cite:boehm2005threads
