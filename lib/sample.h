@@ -10,7 +10,7 @@ template <class Test> class Sample {
     void add(Tuple const& tuple, std::array<Variant, I> const& getters) {
         auto adder = [this](auto&& f) {
             using F = std::remove_cv_t<std::remove_reference_t<decltype(f)>>;
-            if constexpr (std::is_callable_v<F(void), void>) {
+            if constexpr (std::is_invocable_v<F>) {
                 batch_.add(f);
             } else {
                 batch_.add(f, std::ref(result_));
