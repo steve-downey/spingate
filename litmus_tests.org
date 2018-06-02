@@ -234,7 +234,7 @@ IRIW is a generalization of store buffering, where two reader threads each read 
 Initially X=Y=0
 Allowed in ARM, not in x86 r1=1, r2=0, r3=1, r4=0 [fn:5] [fn:4]
 
-This is not observed in x86 processors, but is in ARM and POWER. X86 hardware has a consistent view of memory where other hardware can see memory writes in different orders on different threads.
+This is not observed in x86 processors, but is in some ARM and POWER, more often in POWER. X86 hardware has a consistent view of memory where other hardware can see memory writes in different orders on different threads. On my rPi, I didn't observe any incidents of X and Y being read out of order, over 40 million runs.
 
 #+BEGIN_SRC C++
 IRIW::IRIW() : x_(0), y_(0) {}
@@ -258,6 +258,13 @@ void IRIW::t4(Result& read) {
 
 #+END_SRC
 
+* Summary
+The allowed behavior of modern processors is very different than our mental model of a Von Neumann architecture computer. Each core can have a different view of memory, and without additional controls, writes and reads can break the illusion of a single unified memory. The C++ memory model gives the controls and guarantees about what happens when different threads read and write memory, and here I've deliberately used the weakest version available, relaxed, in order to allow the processors the wideest latitude in behavior. Relaxed is, for processors that have it, often just an unconstrained int, which means that you will get odd behavior if you are running shared state multithreaded code that uses plain native types. It is a particular problem with code that was originally written and tested on a x86 architecture because the native model is fairly strong. This frequently causes problems when porting to a mobile platform, where ARM is a very popular hardware choice.
+
+
+* Org-mode source and git repo
+
+Exported from an org-mode doc. All of the source is available on github at [[https://github.com/steve-downey/spingate][SpinGate]]
 
 #+BIBLIOGRAPHY: /home/sdowney/org/ref.bib plain option:-d limit:t
 
