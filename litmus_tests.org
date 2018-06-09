@@ -1,7 +1,9 @@
+#+BLOG: sdowney
+#+POSTID: 197
 #+OPTIONS: ':nil *:t -:t ::t <:t H:3 \n:nil ^:t arch:headline author:t
 #+OPTIONS: broken-links:nil c:nil creator:nil d:(not "LOGBOOK") date:t e:t
-#+OPTIONS: email:nil f:t inline:t num:t p:nil pri:nil prop:nil stat:t tags:t
-#+OPTIONS: tasks:t tex:t timestamp:t title:t toc:t todo:t |:t
+#+OPTIONS: email:nil f:t inline:t num:nil p:nil pri:nil prop:nil stat:t tags:t
+#+OPTIONS: tasks:t tex:t timestamp:t title:t toc:nil todo:t |:t
 #+TITLE: Litmus Tests for Multithreaded Behavior
 #+DATE: <2017-04-30 Sun>
 #+AUTHOR: Steve Downey
@@ -29,13 +31,13 @@
 #+STARTUP: showeverything
 
 
-Modern multicore processors are entirely weirder than almost anyone thinks possible. They are somewhat weirder than chip makers were willing to admit until fairly recently. They are sufficiently weird enough that almost all multi-threaded programs, and many lock-free algorithms, had bugs because the hardware just does not work the way anyone would reasonably expect. And, in addition, optimizing compilers did not actually know how to not break your code. [fn:1]
+Modern multicore processors are entirely weirder than almost anyone thinks possible. They are somewhat weirder than chip makers were willing to admit until fairly recently. They are sufficiently weird enough that almost all multi-threaded programs, and many lock-free algorithms, had bugs because the hardware just does not work the way anyone would reasonably expect. And, in addition, optimizing compilers did not actually know how to not break your code. cite:boehm2005threads
 
-I'm in the (slow) process of writing some test cases for multi-threaded code. I eventually want to have some confidence that some code is executed once, and only once, in an efficient manner. It's the 'efficient' part that worries me, because for efficient, it also has a tendency to be clever, and I'm learning that clever MT code is often subtly broken. [fn:2] So if smarter people than me make mistakes about MT code, I need tests to compensate. And ones that will cover occasional allowed but unexpected behavior. Which means the test framework should be able to detect them.
+I'm in the (slow) process of writing some test cases for multi-threaded code. I eventually want to have some confidence that some code is executed once, and only once, in an efficient manner. It's the 'efficient' part that worries me, because for efficient, it also has a tendency to be clever, and I'm learning that clever MT code is often subtly broken. cite:bacon2000double So if smarter people than me make mistakes about MT code, I need tests to compensate. And ones that will cover occasional allowed but unexpected behavior. Which means the test framework should be able to detect them.
 
 Also, fortunately, the RPi is a computer that exhibits some odd behavior, as it is an ARM system. X86 has a much stronger model. However, even the x86 model is allowed to perform in odd ways.
 
-Starting in 2007, Intel has started publishing short snippets of assembly and documenting what are the allowed and disallowed results running them in parallel. [fn:3] These snippets have come to be called litmus tests, and are used to confirm the behavior of hardware, and confirm models of the hardware behavior. A particularly important model for C++ programmers is the x86 Total Store Order model [fn:4] which provides a way of mapping the C++11 memory model to X86 hardware. X86 hardware provides a strongly consistent memory model. Power and ARM provide fewer guarantees, and mapping the C++ memory model to these architectures is more challenging. [fn:5]
+Starting in 2007, Intel has started publishing short snippets of assembly and documenting what are the allowed and disallowed results running them in parallel. cite:IWPAug2007 These snippets have come to be called litmus tests, and are used to confirm the behavior of hardware, and confirm models of the hardware behavior. A particularly important model for C++ programmers is the x86 Total Store Order model cite:owens2009better which provides a way of mapping the C++11 memory model to X86 hardware. X86 hardware provides a strongly consistent memory model. Power and ARM provide fewer guarantees, and mapping the C++ memory model to these architectures is more challenging. cite:maranget2012tutorial
 
 * Message Passing
 The tests outlined in the Intel paper are short pieces of assembly to be exercised on different processors, with guarantees about behavior that will not happen. The first one essentially promises that message passing will work, and is now known as the MP test.
@@ -51,7 +53,7 @@ That says that we can't read the writes of x and y out of order, which ensures t
 
 ARM and Power do not provide that guarantee without additional synchronization instructions.
 
-In C++ that looks something like the following, using the test frameword I'm writing.
+In C++ that looks something like the following, using the test framework I'm writing.
 #+BEGIN_SRC C++
 MP::MP() : x_(0), y_(0) {}
 void MP::t1() {
@@ -220,7 +222,7 @@ And the ARM code, at -O1
 
 #+END_EXAMPLE
 
-ARM generally allows it, but per [fn:5] it's very sensitive, and dependencies will make it not appear. In my tests, I did not observe an instance of a buffering, but it may be due to the first store the compiler introduces, in order to actually get the data into the tuple. That it's documented as possible is still exceedingly strange.
+ARM generally allows it, but per cite:maranget2012tutorial it's very sensitive, and dependencies will make it not appear. In my tests, I did not observe an instance of a buffering, but it may be due to the first store the compiler introduces, in order to actually get the data into the tuple. That it's documented as possible is still exceedingly strange.
 
 * Independent Reads of Independent Writes
 
@@ -232,7 +234,7 @@ IRIW is a generalization of store buffering, where two reader threads each read 
 |       |       | R2 = Y | R4 = X |
 |       |       |        |        |
 Initially X=Y=0
-Allowed in ARM, not in x86 r1=1, r2=0, r3=1, r4=0 [fn:5] [fn:4]
+Allowed in ARM, not in x86 r1=1, r2=0, r3=1, r4=0 cite:maranget2012tutorial,owens2009better
 
 This is not observed in x86 processors, but is in some ARM and POWER, more often in POWER. X86 hardware has a consistent view of memory where other hardware can see memory writes in different orders on different threads. On my rPi, I didn't observe any incidents of X and Y being read out of order, over 40 million runs.
 
@@ -266,16 +268,7 @@ The allowed behavior of modern processors is very different than our mental mode
 
 Exported from an org-mode doc. All of the source is available on github at [[https://github.com/steve-downey/spingate][SpinGate]]
 
-#+BIBLIOGRAPHY: /home/sdowney/org/ref.bib plain option:-d limit:t
+* References
 
-* Footnotes
-
-[fn:5] [[https://www.cl.cam.ac.uk/~pes20/ppc-supplemental/test7.pdf][A Tutorial Introduction to the ARM and POWER Relaxed Memory Models]] cite:maranget2012tutorial
-
-[fn:4] [[https://www.cl.cam.ac.uk/~pes20/weakmemory/x86tso-paper.tphols.pdf][A Better x86 Memory Model: x86-TSO]] cite:owens2009better
-
-[fn:2] [[https://www.cs.umd.edu/~pugh/java/memoryModel/DoubleCheckedLocking.html][Double Checked Locking is Broken]] cite:bacon2000double
-
-[fn:3] [[http://www.cs.cmu.edu/~410-f10/doc/Intel_Reordering_318147.pdf][Intel White Paper August '07 ]] cite:IWPAug2007
-
-[fn:1] [[http://www.hpl.hp.com/techreports/2004/HPL-2004-209.pdf][Threads Cannot be Implemented as a Library]] cite:boehm2005threads
+bibliographystyle:unsrt
+bibliography:ref.bib
