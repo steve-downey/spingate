@@ -14,7 +14,7 @@ TEST(ExperimentTest, BreathTest1)
 {
     using Test = litmus::Breath1;
     Experiment<Test> exp;
-    exp.run(2000000);
+    exp.run(20000);
 
     for(auto result : exp.resultMap_)
     {
@@ -29,7 +29,7 @@ TEST(ExperimentTest, BreathTest2)
 {
     using Test = litmus::Breath2;
     Experiment<Test> exp;
-    exp.run(2000000);
+    exp.run(20000);
 
     for(auto result : exp.resultMap_)
     {
@@ -44,7 +44,7 @@ TEST(ExperimentTest, SBTest1)
 {
     using Test = litmus::SB;
     Experiment<Test> exp;
-    exp.run(2000000);
+    exp.run(20000);
 
     for(auto result : exp.resultMap_)
     {
@@ -59,7 +59,7 @@ TEST(ExperimentTest, MPaTest1)
 {
     using Test = litmus::MPa;
     Experiment<Test> exp;
-    exp.run(2000000);
+    exp.run(20000);
 
     for(auto result : exp.resultMap_)
     {
@@ -74,7 +74,7 @@ TEST(ExperimentTest, MPTest1)
 {
     using Test = litmus::MP;
     Experiment<Test> exp;
-    exp.run(2000000);
+    exp.run(20000);
 
     for(auto result : exp.resultMap_)
     {
@@ -89,7 +89,7 @@ TEST(ExperimentTest, IRIWTest1)
 {
     using Test = litmus::IRIW;
     Experiment<Test> exp;
-    exp.run(2000000);
+    exp.run(20000);
 
     for(auto result : exp.resultMap_)
     {
@@ -104,7 +104,7 @@ TEST(ExperimentTest, LBTest1)
 {
     using Test = litmus::LB;
     Experiment<Test> exp;
-    exp.run(2000000);
+    exp.run(20000);
 
     for(auto result : exp.resultMap_)
     {
