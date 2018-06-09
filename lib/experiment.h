@@ -13,8 +13,8 @@ template <class Test> class Experiment {
 
   public:
     void run(size_t count) {
-        Test s;
-        auto getters = tupleutil::tuple_getters(s.actions());
+        using Actions = decltype(((Test*)nullptr)->actions());
+        auto getters = tupleutil::tuple_getters<Actions>();
         for (size_t i = 0; i < count; ++i) {
             Sample<Test> sample;
             sample.run(getters);
