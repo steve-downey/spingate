@@ -1,0 +1,174 @@
+#+BLOG: sdowney
+#+POSTID: 202
+#+OPTIONS: ':nil *:t -:t ::t <:t H:3 \n:nil ^:t arch:headline author:t
+#+OPTIONS: broken-links:nil c:nil creator:nil d:(not "LOGBOOK") date:t e:t
+#+OPTIONS: email:nil f:t inline:t num:nil p:nil pri:nil prop:nil stat:t tags:t
+#+OPTIONS: tasks:t tex:t timestamp:t title:t toc:nil todo:t |:t
+ #+TITLE: Multithread Experiments
+#+DATE: <2018-06-05 Tue>
+#+AUTHOR: Steve Downey
+#+EMAIL: sdowney@sdowney.org
+#+LANGUAGE: en
+#+SELECT_TAGS: export
+#+EXCLUDE_TAGS: noexport
+#+CREATOR: Emacs 26.1 (Org mode 9.1.13)
+#+OPTIONS: html-link-use-abs-url:nil html-postamble:auto html-preamble:t
+#+OPTIONS: html-scripts:t html-style:t html5-fancy:nil tex:t
+#+HTML_DOCTYPE: xhtml-strict
+#+HTML_CONTAINER: div
+#+DESCRIPTION:
+#+KEYWORDS:
+#+HTML_LINK_HOME:
+#+HTML_LINK_UP:
+#+HTML_MATHJAX:
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="https://raw.githubusercontent.com/steve-downey/css/master/smd-zenburn.css" />
+#+HTML_HEAD_EXTRA:
+#+SUBTITLE:
+#+INFOJS_OPT:
+#+CREATOR: <a href="https://www.gnu.org/software/emacs/">Emacs</a> 26.1 (<a href="https://orgmode.org">Org</a> mode 9.1.13)
+#+LATEX_HEADER:
+#+LATEX_CLASS: article
+#+LATEX_CLASS_OPTIONS:
+#+LATEX_HEADER:
+#+LATEX_HEADER_EXTRA:
+#+DESCRIPTION:
+#+KEYWORDS:
+#+SUBTITLE:
+#+LATEX_COMPILER: pdflatex
+#+DATE: \today
+#+STARTUP: showall
+
+* An Experiment Collects Samples
+
+I'm modelling this in order to run bits of code like the various litmus tests used to describe multi-core architectures. A set of functions to be run in parallel that may or may not write to a result, which type is a property of the Test being run. The Experiment will run the Test collecting Samples. The Test type will provide a tuple of functions to run. They will be run under a spingate in all permutations in order to remove scheduling bias.
+
+* What a Test looks like
+#+BEGIN_SRC C++
+class MP { // Message Passing
+    int x_;
+    int y_;
+
+  public:
+    typedef std::tuple<int> Result;
+    MP();
+    void t1();
+    void t2(Result& read);
+
+    auto actions() {
+        return std::make_tuple([this]() { t1(); },
+                               [this](Result& result) { t2(result); });
+    }
+};
+#+END_SRC
+
+The Test interface must provide a Result type, and an actions() member that will produce a tuple of functions to run which either take no arguments or a reference to a result.
+
+The test being defined here is the basic Message Passing litmus test.
+
+#+BEGIN_SRC C++
+MP::MP() : x_(0), y_(0) {}
+
+void MP::t1() {
+    x_ = 1;
+    y_ = 1;
+}
+
+void MP::t2(Result& read) {
+    while (!y) {
+    }
+    std::get<0>(read) = x_;
+}
+#+END_SRC
+
+Two variables are initialized to 0. One thread stores 1 to x first, then to 1 to y. The other thread loops until it reads a non-zero in y, and then reads x. The value in x is the message being passed between threads.
+
+In an actual test, the variables would be atomics, specifiying load and store strength, and the variables might have constraints on layout to help sharing cache line updates.
+
+* An Experiment
+An Experiment samples a test a number of times. It takes the result of each sample, and puts in a map of the results to count, incrementing the count for each distinct result. The actions to run are permuted each time, to help remove bias about which action is loaded behind the spingate first.
+
+#+BEGIN_SRC C++
+void Experiment::run(size_t count) {
+    using Actions = decltype(std::declval<Test>().actions());
+    auto getters = tupleutil::tuple_getters<Actions>();
+    for (size_t i = 0; i < count; ++i) {
+        Sample<Test> sample;
+        sample.run(getters);
+        resultMap_[sample.result_]++;
+        std::next_permutation(getters.begin(), getters.end());
+    }
+}
+
+#+END_SRC
+~tupleutil::tuple_getters~ returns an array of getters each of which returns a std::variant<Types...> with the same parameter pack as the tuple.
+
+Sample runs all of the actions in a batch that locks them behind a spingate, and collects the results for each action.
+
+#+BEGIN_SRC C++
+template <class Test> class Sample {
+  public:
+    Batch                 batch_;
+    Test                  test_;
+    typename Test::Result result_;
+
+    template <typename V, size_t I> void run(std::array<V, I> const& getters) {
+        auto const& actions = test_.actions();
+        add(actions, getters);
+        batch_.run();
+    }
+};
+#+END_SRC
+
+Add is a templated member function that loops over the array, uses the getter to pull a function out of the tuple of actions and visits that with a lambda that will add either the function with no arguments, or that function with a reference to the results, to the batch.
+
+#+BEGIN_SRC C++
+    template <typename Tuple, typename Variant, size_t I>
+    void add(Tuple const& actions, std::array<Variant, I> const& getters) {
+        auto adder = [this](auto&& f) {
+            using F = std::remove_cv_t<std::remove_reference_t<decltype(f)>>;
+            if constexpr (std::is_invocable_v<F>) {
+                batch_.add(f);
+            } else {
+                batch_.add(f, std::ref(result_));
+            }
+        };
+        for (auto&& get_n : getters) {
+            std::visit(adder, get_n(actions));
+        }
+        return;
+    }
+#+END_SRC
+
+I am a bit dissatisfied with the else case not being constexpr if followed by a static assert, but getting the condition right didn't work the obvious way, so I punted. There will be a compiler error if f(result_) can't actually be called by the batch.
+
+* Batch recapped:
+The key bit of code is
+#+BEGIN_SRC C++
+template <class Function, class... Args>
+void Batch::add(Function&& f, Args&&... args) {
+    workers_.emplace_back([ this, f = std::forward<Function>(f), args... ]() {
+            gate_.wait();
+            f(args...);
+        });
+}
+
+#+END_SRC
+
+Batch has a spingate and runs all of the functions that are added sitting behind it. The ~run()~ function opens the gate and joins all the worker threads.
+
+#+BEGIN_SRC C++
+void Batch::run() {
+    gate_.open();
+    for (auto& thr : workers_) {
+        thr.join();
+    }
+}
+
+#+END_SRC
+
+
+* Summary
+With all the machinery in place, the test infrascructure can aggressively run multi-threaded tests, giving the thread scheduler the best opportunity to run all of the actions in any order. This allows multi thread bugs to be shaken out by looking for surprising results from the experiment.
+
+* Source Code
+Exported from an org-mode doc, experiment.org, which is available, with all of the source on github at [[https://github.com/steve-downey/spingate][SpinGate]].

@@ -39,15 +39,15 @@ endif()
 # A directory to find Google Test sources.
 if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/googletest/CMakeLists.txt")
   add_subdirectory(googletest EXCLUDE_FROM_ALL)
-  add_subdirectory(tests)
   enable_testing()
+
+  add_subdirectory(tests)
+  include(GoogleTest)
 else()
   message("GTEST Not Found at ${CMAKE_CURRENT_SOURCE_DIR}/googletest/CMakeLists.txt")
 endif()
 
-add_subdirectory(tupleutil)
-
-include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+add_subdirectory(tupleutil EXCLUDE_FROM_ALL)
 
 add_subdirectory(lib)
 add_subdirectory(main)

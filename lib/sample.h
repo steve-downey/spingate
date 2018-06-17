@@ -7,7 +7,7 @@
 
 template <class Test> class Sample {
     template <typename Tuple, typename Variant, size_t I>
-    void add(Tuple const& tuple, std::array<Variant, I> const& getters) {
+    void add(Tuple const& actions, std::array<Variant, I> const& getters) {
         auto adder = [this](auto&& f) {
             using F = std::remove_cv_t<std::remove_reference_t<decltype(f)>>;
             if constexpr (std::is_invocable_v<F>) {
@@ -17,7 +17,7 @@ template <class Test> class Sample {
             }
         };
         for (auto&& get_n : getters) {
-            std::visit(adder, get_n(tuple));
+            std::visit(adder, get_n(actions));
         }
         return;
     }

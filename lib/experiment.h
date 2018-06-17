@@ -13,7 +13,7 @@ template <class Test> class Experiment {
 
   public:
     void run(size_t count) {
-        using Actions = decltype(((Test*)nullptr)->actions());
+        using Actions = decltype(std::declval<Test>().actions());
         auto getters = tupleutil::tuple_getters<Actions>();
         for (size_t i = 0; i < count; ++i) {
             Sample<Test> sample;
